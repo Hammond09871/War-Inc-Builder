@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: war-inc-builder
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build && npx drizzle-kit push
+    startCommand: node dist/index.cjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_PATH
+        value: /data/warinc.db
+    disk:
+      name: warinc-data
+      mountPath: /data
+      sizeGB: 1

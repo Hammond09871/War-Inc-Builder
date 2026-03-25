@@ -1,8 +1,9 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertRosterSchema, insertLineupSchema } from "@shared/schema";
+import { insertRosterSchema, insertLineupSchema, type User } from "@shared/schema";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 
 // Hero data to seed
 const heroSeedData = [
@@ -89,6 +90,102 @@ export async function registerRoutes(
   // Seed heroes on startup
   seedHeroes();
 
+  // Health check endpoint
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", heroes: storage.getHeroCount(), timestamp: new Date().toISOString() });
+  });
+
+  // Helper to extract visitor ID from request
+  function getVisitorId(req: Request): string {
+    return (req.headers['x-visitor-id'] as string) || 'dev-local';
+  }
+
+  // Helper to get authenticated user from request via visitor session
+  function getUserFromRequest(req: Request): User | null {
+    const visitorId = getVisitorId(req);
+    const session = storage.getSessionByVisitorId(visitorId);
+    if (!session) return null;
+    const user = storage.getUserById(session.userId);
+    return user || null;
+  }
+
+  // --- Auth Routes (public) ---
+
+  // POST /api/auth/register
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || typeof username !== 'string' || username.trim().length < 3) {
+        return res.status(400).json({ message: "Username must be at least 3 characters" });
+      }
+      if (!password || typeof password !== 'string' || password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+
+      const existing = storage.getUserByUsername(username.trim().toLowerCase());
+      if (existing) {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const user = storage.createUser(username.trim().toLowerCase(), passwordHash);
+
+      const visitorId = getVisitorId(req);
+      storage.createSession(visitorId, user.id);
+
+      res.json({ user: { id: user.id, username: user.username } });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  // POST /api/auth/login
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      const user = storage.getUserByUsername(username.trim().toLowerCase());
+      if (!user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const visitorId = getVisitorId(req);
+      storage.createSession(visitorId, user.id);
+
+      res.json({ user: { id: user.id, username: user.username } });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  // POST /api/auth/logout
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    const visitorId = getVisitorId(req);
+    storage.deleteSession(visitorId);
+    res.json({ success: true });
+  });
+
+  // GET /api/auth/me
+  app.get("/api/auth/me", (req: Request, res: Response) => {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    res.json({ user: { id: user.id, username: user.username } });
+  });
+
+  // --- Hero Routes (public) ---
+
   // GET /api/heroes - list all heroes with optional filters
   app.get("/api/heroes", (_req, res) => {
     const { rarity, role, position, attribute } = _req.query;
@@ -110,25 +207,32 @@ export async function registerRoutes(
     res.json(hero);
   });
 
+  // --- Protected Routes (require auth) ---
+
   // GET /api/roster - get user's roster
-  app.get("/api/roster", (_req, res) => {
-    const roster = storage.getRoster();
+  app.get("/api/roster", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    const roster = storage.getRoster(user.id);
     res.json(roster);
   });
 
   // POST /api/roster - add/update hero in roster
   app.post("/api/roster", (req, res) => {
     try {
+      const user = getUserFromRequest(req);
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+
       const { heroId, mergeLevel, starLevel } = req.body;
-      
+
       // Check if hero exists
       const hero = storage.getHeroById(heroId);
       if (!hero) return res.status(404).json({ message: "Hero not found" });
 
       // Check if already in roster
-      if (storage.isHeroInRoster(heroId)) {
+      if (storage.isHeroInRoster(heroId, user.id)) {
         // Find and update
-        const roster = storage.getRoster();
+        const roster = storage.getRoster(user.id);
         const existing = roster.find(r => r.heroId === heroId);
         if (existing) {
           const updated = storage.updateRosterEntry(existing.id, mergeLevel || 1, starLevel || 1);
@@ -140,6 +244,7 @@ export async function registerRoutes(
         heroId,
         mergeLevel: mergeLevel || 1,
         starLevel: starLevel || 1,
+        userId: user.id,
       });
 
       const entry = storage.addToRoster(parsed);
@@ -151,6 +256,9 @@ export async function registerRoutes(
 
   // PATCH /api/roster/:id - update merge/star level
   app.patch("/api/roster/:id", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
     const id = Number(req.params.id);
     const entry = storage.getRosterEntry(id);
     if (!entry) return res.status(404).json({ message: "Roster entry not found" });
@@ -166,21 +274,30 @@ export async function registerRoutes(
 
   // DELETE /api/roster/:id
   app.delete("/api/roster/:id", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
     const id = Number(req.params.id);
     storage.removeFromRoster(id);
     res.json({ success: true });
   });
 
   // GET /api/lineups
-  app.get("/api/lineups", (_req, res) => {
-    const result = storage.getLineups();
+  app.get("/api/lineups", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+    const result = storage.getLineups(user.id);
     res.json(result);
   });
 
   // POST /api/lineups
   app.post("/api/lineups", (req, res) => {
     try {
-      const parsed = insertLineupSchema.parse(req.body);
+      const user = getUserFromRequest(req);
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+      const parsed = insertLineupSchema.parse({ ...req.body, userId: user.id });
       const lineup = storage.saveLineup(parsed);
       res.json(lineup);
     } catch (e: any) {
@@ -190,15 +307,49 @@ export async function registerRoutes(
 
   // DELETE /api/lineups/:id
   app.delete("/api/lineups/:id", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
     const id = Number(req.params.id);
     storage.deleteLineup(id);
     res.json({ success: true });
   });
 
+  // GET /api/export - export user's data
+  app.get("/api/export", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+    const data = storage.exportUserData(user.id);
+    res.json(data);
+  });
+
+  // POST /api/import - import user's data
+  app.post("/api/import", (req, res) => {
+    try {
+      const user = getUserFromRequest(req);
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+      const { roster, lineups } = req.body;
+
+      if (!Array.isArray(roster) || !Array.isArray(lineups)) {
+        return res.status(400).json({ message: "Invalid import data: expected { roster: [...], lineups: [...] }" });
+      }
+
+      storage.importUserData(user.id, { roster, lineups });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
   // POST /api/optimize
   app.post("/api/optimize", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
     const { mode, formation, enemyFormation, enemyHeroIds } = req.body;
-    const roster = storage.getRoster();
+    const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
     if (roster.length === 0) {
