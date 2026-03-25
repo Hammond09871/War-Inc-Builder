@@ -14,6 +14,27 @@ const dbPath = process.env.DATABASE_PATH || "data.db";
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 
+// Check if schema migration is needed (old schema had 'role' column, new has 'class')
+try {
+  const heroesInfo = sqlite.prepare("PRAGMA table_info(heroes)").all() as any[];
+  const hasOldSchema = heroesInfo.some((col: any) => col.name === 'role');
+  const hasNewSchema = heroesInfo.some((col: any) => col.name === 'class');
+  
+  if (heroesInfo.length > 0 && hasOldSchema && !hasNewSchema) {
+    console.log("Detected old schema, migrating database...");
+    sqlite.exec(`
+      DROP TABLE IF EXISTS lineups;
+      DROP TABLE IF EXISTS rosters;
+      DROP TABLE IF EXISTS sessions;
+      DROP TABLE IF EXISTS users;
+      DROP TABLE IF EXISTS heroes;
+    `);
+    console.log("Old tables dropped, will recreate with new schema.");
+  }
+} catch (e) {
+  console.log("Schema check skipped (fresh database)");
+}
+
 // Create tables if they don't exist (replaces drizzle-kit push for production)
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS heroes (
