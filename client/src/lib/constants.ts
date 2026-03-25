@@ -1,8 +1,8 @@
 export const RARITY_COLORS: Record<string, string> = {
-  Mythic: "#FFD700",
-  Legendary: "#9B59B6",
-  Epic: "#3498DB",
-  Rare: "#2ECC71",
+  Mythic: "#FFD700", // Gold — the gradient is applied via CSS class
+  Legendary: "#FFD700",
+  Epic: "#9B59B6",
+  Rare: "#3498DB",
   Common: "#95A5A6",
 };
 
@@ -30,11 +30,11 @@ export const TIER_CLASS: Record<string, string> = {
   D: "tier-d",
 };
 
-export const POSITIONS = ["Front", "Mid", "Back"] as const;
-export const ROLES = ["Tank", "DPS", "Support", "Control"] as const;
+export const PLACEMENTS = ["Front", "Mid", "Back"] as const;
+export const CLASSES = ["Warrior", "Marksman", "Mage", "Support", "Tank", "Assassin"] as const;
 export const RARITIES = ["Mythic", "Legendary", "Epic", "Rare", "Common"] as const;
 export const TIERS = ["S", "A", "B", "C", "D"] as const;
-export const ATTRIBUTES = ["Physical", "Fire", "Water", "Wood", "Nature", "Earth", "Lightning", "Light", "Shadow", "Wind", "Divine"] as const;
+export const ATTRIBUTES = ["Physical", "Fire", "Water", "Wood", "Earth", "Frost", "Holy", "Shadow", "Wind"] as const;
 export const GAME_MODES = ["Arena", "Co-op", "Adventure", "Infinity War", "Clan Hunt"] as const;
 export const FORMATIONS = ["Dash", "Backstab", "Outflank", "Split"] as const;
 
@@ -65,10 +65,12 @@ export const FORMATION_INFO: Record<string, { description: string; strongAgainst
   },
 };
 
-export const RARITY_POWER_MULTIPLIER: Record<string, number> = {
-  Mythic: 5,
-  Legendary: 4,
-  Epic: 3,
-  Rare: 2,
-  Common: 1,
-};
+// Helper to get HP+ATK power from stats JSON at a given level
+export function getHeroPower(statsJson: string, level: number): number {
+  try {
+    const stats = JSON.parse(statsJson);
+    const lvl = stats[String(level)];
+    if (lvl) return (lvl.hp || 0) + (lvl.atk || 0);
+  } catch {}
+  return 0;
+}

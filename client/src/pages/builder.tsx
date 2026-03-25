@@ -8,36 +8,54 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, Wand2, X, Zap, Shield, Swords, Heart, Info, Trash2 } from "lucide-react";
+import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { GAME_MODES, FORMATIONS, FORMATION_INFO, RARITY_COLORS, RARITY_POWER_MULTIPLIER } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, FORMATION_INFO, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 type PlacedHero = {
   rosterId: number;
   heroId: number;
   heroName: string;
-  mergeLevel: number;
-  position: string;
-  role: string;
+  level: number;
+  placement: string;
+  heroClass: string;
   elixir: number;
   rarity: string;
-  row: number; // 0=Front,1=Mid,2=Back
+  row: number; // 0-6 (Row 1 through Row 7)
   col: number; // 0-6
 };
 
-const ROW_LABELS = ["Front", "Mid", "Back"];
+const ROWS = 7;
 const COLS = 7;
+const ROW_LABELS = ["Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7"];
+
+// Row 7 (index 6) only allows columns 2, 3, 4 (0-indexed)
+function isCellLocked(row: number, col: number): boolean {
+  if (row === 6) {
+    return col < 2 || col > 4;
+  }
+  return false;
+}
+
+const classIcons: Record<string, any> = {
+  Warrior: Swords,
+  Marksman: Crosshair,
+  Mage: Wand2Icon,
+  Support: Heart,
+  Tank: Shield,
+  Assassin: Zap,
+};
+
+function makeEmptyGrid(): (PlacedHero | null)[][] {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+}
 
 export default function LineupBuilder() {
   const [mode, setMode] = useState("Arena");
   const [formation, setFormation] = useState("Dash");
-  const [grid, setGrid] = useState<(PlacedHero | null)[][]>([
-    Array(COLS).fill(null),
-    Array(COLS).fill(null),
-    Array(COLS).fill(null),
-  ]);
+  const [grid, setGrid] = useState<(PlacedHero | null)[][]>(makeEmptyGrid());
   const [selectingCell, setSelectingCell] = useState<{ row: number; col: number } | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [lineupName, setLineupName] = useState("");
@@ -93,35 +111,39 @@ export default function LineupBuilder() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      // Place heroes on grid based on optimization result
-      const newGrid: (PlacedHero | null)[][] = [
-        Array(COLS).fill(null),
-        Array(COLS).fill(null),
-        Array(COLS).fill(null),
-      ];
-
-      const rowMap: Record<string, number> = { Front: 0, Mid: 1, Back: 2 };
-      const colCounters = [0, 0, 0];
+      const newGrid = makeEmptyGrid();
+      // Place by placement: Front→rows 0-1, Mid→rows 2-3, Back→rows 4-5
+      const placementRows: Record<string, number[]> = {
+        Front: [0, 1],
+        Mid: [2, 3],
+        Back: [4, 5],
+      };
+      const colCounters: Record<string, number> = { Front: 0, Mid: 0, Back: 0 };
+      const rowCounters: Record<string, number> = { Front: 0, Mid: 0, Back: 0 };
 
       for (const hero of data.lineup) {
-        const row = rowMap[hero.position] ?? 1;
-        const col = colCounters[row];
-        if (col < COLS) {
-          const rosterEntry = roster?.find(r => r.heroId === hero.heroId);
-          newGrid[row][col] = {
+        const pos = hero.placement || "Mid";
+        const rows = placementRows[pos] || [2, 3];
+        const colIdx = colCounters[pos] % COLS;
+        const rowOffset = Math.floor(colCounters[pos] / COLS);
+        const rowIdx = rows[Math.min(rowOffset, rows.length - 1)];
+
+        if (rowIdx < ROWS && colIdx < COLS && !isCellLocked(rowIdx, colIdx)) {
+          const rosterEntry = roster?.find(r => r.id === hero.rosterId);
+          newGrid[rowIdx][colIdx] = {
             rosterId: hero.rosterId,
             heroId: hero.heroId,
             heroName: hero.heroName,
-            mergeLevel: hero.mergeLevel,
-            position: hero.position,
-            role: hero.role,
+            level: hero.level,
+            placement: hero.placement,
+            heroClass: hero.class,
             elixir: hero.elixir,
             rarity: rosterEntry?.hero?.rarity || "Common",
-            row,
-            col,
+            row: rowIdx,
+            col: colIdx,
           };
-          colCounters[row]++;
         }
+        colCounters[pos]++;
       }
 
       setGrid(newGrid);
@@ -135,25 +157,25 @@ export default function LineupBuilder() {
   // Calculate placed heroes
   const placedHeroes = grid.flat().filter(Boolean) as PlacedHero[];
   const totalElixir = placedHeroes.reduce((s, h) => s + h.elixir, 0);
-  const placedHeroIds = new Set(placedHeroes.map(h => h.heroId));
+  const placedRosterIds = new Set(placedHeroes.map(h => h.rosterId));
   const totalPower = placedHeroes.reduce((s, h) => {
-    const mult = RARITY_POWER_MULTIPLIER[h.rarity] || 1;
-    return s + (h.mergeLevel * mult * 100);
+    const rEntry = roster?.find(r => r.id === h.rosterId);
+    if (rEntry) return s + getHeroPower(rEntry.hero.stats, rEntry.level);
+    return s;
   }, 0);
 
-  // Available heroes (in roster but not placed)
-  const availableRoster = roster?.filter(r => !placedHeroIds.has(r.heroId)) || [];
+  // Available heroes (in roster but not placed — by roster ID since duplicates are allowed)
+  const availableRoster = roster?.filter(r => !placedRosterIds.has(r.id)) || [];
 
   const handleCellClick = (row: number, col: number) => {
+    if (isCellLocked(row, col)) return;
     const existing = grid[row][col];
     if (existing) {
-      // Remove hero
       const newGrid = grid.map(r => [...r]);
       newGrid[row][col] = null;
       setGrid(newGrid);
       return;
     }
-    // Open hero picker
     setSelectingCell({ row, col });
   };
 
@@ -165,9 +187,9 @@ export default function LineupBuilder() {
       rosterId: rosterEntry.id,
       heroId: rosterEntry.heroId,
       heroName: rosterEntry.hero.name,
-      mergeLevel: rosterEntry.mergeLevel,
-      position: rosterEntry.hero.position,
-      role: rosterEntry.hero.role,
+      level: rosterEntry.level,
+      placement: rosterEntry.hero.placement,
+      heroClass: rosterEntry.hero.class,
       elixir: rosterEntry.hero.elixir,
       rarity: rosterEntry.hero.rarity,
       row,
@@ -177,18 +199,19 @@ export default function LineupBuilder() {
     setSelectingCell(null);
   };
 
-  const clearGrid = () => {
-    setGrid([
-      Array(COLS).fill(null),
-      Array(COLS).fill(null),
-      Array(COLS).fill(null),
-    ]);
-  };
+  const clearGrid = () => setGrid(makeEmptyGrid());
 
   const loadLineup = (lineup: Lineup) => {
     try {
       const parsed = JSON.parse(lineup.heroSelections);
-      setGrid(parsed);
+      // Ensure grid is 7x7, pad if loading old 3-row layout
+      const newGrid = makeEmptyGrid();
+      for (let r = 0; r < Math.min(parsed.length, ROWS); r++) {
+        for (let c = 0; c < Math.min(parsed[r]?.length || 0, COLS); c++) {
+          newGrid[r][c] = parsed[r][c];
+        }
+      }
+      setGrid(newGrid);
       setMode(lineup.mode);
       if (lineup.formation) setFormation(lineup.formation);
       toast({ title: `Loaded: ${lineup.name}` });
@@ -198,14 +221,13 @@ export default function LineupBuilder() {
   };
 
   // Synergy analysis
-  const roleCount: Record<string, number> = {};
+  const classCount: Record<string, number> = {};
   const attrCount: Record<string, number> = {};
   placedHeroes.forEach(h => {
-    roleCount[h.role] = (roleCount[h.role] || 0) + 1;
+    classCount[h.heroClass] = (classCount[h.heroClass] || 0) + 1;
   });
-  // Get attribute info from roster
   placedHeroes.forEach(h => {
-    const rEntry = roster?.find(r => r.heroId === h.heroId);
+    const rEntry = roster?.find(r => r.id === h.rosterId);
     if (rEntry) {
       const attr = rEntry.hero.attribute;
       attrCount[attr] = (attrCount[attr] || 0) + 1;
@@ -220,7 +242,7 @@ export default function LineupBuilder() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-lg font-bold" data-testid="text-page-title">Lineup Builder</h1>
-            <p className="text-xs text-muted-foreground mt-1">Drag and place heroes on the battlefield</p>
+            <p className="text-xs text-muted-foreground mt-1">Place heroes on the 7×7 battlefield</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={clearGrid} data-testid="button-clear-grid">
@@ -289,43 +311,52 @@ export default function LineupBuilder() {
                   </span>
                 </div>
               </div>
-              
-              <div className="space-y-2">
+
+              <div className="space-y-1.5">
                 {grid.map((row, rowIdx) => (
                   <div key={rowIdx} className="flex items-center gap-2">
                     <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">{ROW_LABELS[rowIdx]}</span>
-                    <div className="flex-1 grid grid-cols-7 gap-1.5">
-                      {row.map((cell, colIdx) => (
-                        <button
-                          key={colIdx}
-                          onClick={() => handleCellClick(rowIdx, colIdx)}
-                          className={`grid-cell aspect-square rounded-md flex flex-col items-center justify-center p-0.5 min-h-[52px] ${cell ? "occupied" : ""}`}
-                          data-testid={`grid-cell-${rowIdx}-${colIdx}`}
-                        >
-                          {cell ? (
-                            <>
-                              <span className="text-[9px] font-semibold truncate w-full text-center leading-tight"
-                                style={{ color: RARITY_COLORS[cell.rarity] || "#95A5A6" }}>
-                                {cell.heroName.split(" ").map(w => w[0]).join("")}
-                              </span>
-                              <span className="text-[8px] text-muted-foreground truncate w-full text-center">
-                                {cell.heroName.length > 8 ? cell.heroName.substring(0, 8) + "…" : cell.heroName}
-                              </span>
-                              <span className="text-[8px] text-primary/70">M{cell.mergeLevel}</span>
-                            </>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground/30">+</span>
-                          )}
-                        </button>
-                      ))}
+                    <div className="flex-1 grid grid-cols-7 gap-1">
+                      {row.map((cell, colIdx) => {
+                        const locked = isCellLocked(rowIdx, colIdx);
+                        return (
+                          <button
+                            key={colIdx}
+                            onClick={() => handleCellClick(rowIdx, colIdx)}
+                            disabled={locked}
+                            className={`grid-cell aspect-square rounded-md flex flex-col items-center justify-center p-0.5 min-h-[44px] ${
+                              cell ? "occupied" : ""
+                            } ${locked ? "opacity-30 cursor-not-allowed" : ""}`}
+                            data-testid={`grid-cell-${rowIdx}-${colIdx}`}
+                          >
+                            {locked ? (
+                              <Lock className="w-3 h-3 text-muted-foreground/30" />
+                            ) : cell ? (
+                              <>
+                                <span className="text-[8px] font-semibold truncate w-full text-center leading-tight"
+                                  style={{ color: RARITY_COLORS[cell.rarity] || "#95A5A6" }}>
+                                  {cell.heroName.split(" ").map(w => w[0]).join("")}
+                                </span>
+                                <span className="text-[7px] text-muted-foreground truncate w-full text-center">
+                                  {cell.heroName.length > 7 ? cell.heroName.substring(0, 7) + "…" : cell.heroName}
+                                </span>
+                                <span className="text-[7px] text-primary/70">L{cell.level}</span>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground/30">+</span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Grid legend */}
-              <div className="flex items-center gap-4 mt-3 pt-2 border-t border-border/20">
-                <span className="text-[9px] text-muted-foreground/50">Click cell to place hero · Click occupied cell to remove</span>
+              {/* Row 7 note */}
+              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/20">
+                <Lock className="w-3 h-3 text-muted-foreground/50" />
+                <span className="text-[9px] text-muted-foreground/50">Row 7 unlocks at Commander Level 999 (only columns 3-5 available)</span>
               </div>
             </div>
 
@@ -394,7 +425,6 @@ export default function LineupBuilder() {
             <Card className="border-border/50" style={{ background: "#161924" }}>
               <CardContent className="p-3 space-y-3">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Team Summary</h3>
-                
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Heroes</span>
                   <span className="text-xs font-semibold" data-testid="text-hero-count">{placedHeroes.length}</span>
@@ -412,25 +442,29 @@ export default function LineupBuilder() {
               </CardContent>
             </Card>
 
-            {/* Role Balance */}
+            {/* Class Balance */}
             <Card className="border-border/50" style={{ background: "#161924" }}>
               <CardContent className="p-3 space-y-2">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role Balance</h3>
-                {Object.entries(roleCount).length === 0 ? (
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class Balance</h3>
+                {Object.entries(classCount).length === 0 ? (
                   <p className="text-[10px] text-muted-foreground">Place heroes to see analysis</p>
                 ) : (
                   <div className="space-y-1.5">
                     {[
-                      { role: "Tank", icon: Shield, color: "#3498DB" },
-                      { role: "DPS", icon: Swords, color: "#E74C3C" },
-                      { role: "Support", icon: Heart, color: "#2ECC71" },
-                      { role: "Control", icon: Wand2, color: "#9B59B6" },
-                    ].map(({ role, icon: Icon, color }) => (
-                      <div key={role} className="flex items-center gap-2">
-                        <Icon className="w-3 h-3" style={{ color }} />
-                        <span className="text-[10px] text-muted-foreground flex-1">{role}</span>
-                        <span className="text-[10px] font-semibold">{roleCount[role] || 0}</span>
-                      </div>
+                      { cls: "Tank", icon: Shield, color: "#3498DB" },
+                      { cls: "Warrior", icon: Swords, color: "#E74C3C" },
+                      { cls: "Marksman", icon: Crosshair, color: "#F39C12" },
+                      { cls: "Mage", icon: Wand2Icon, color: "#9B59B6" },
+                      { cls: "Support", icon: Heart, color: "#2ECC71" },
+                      { cls: "Assassin", icon: Zap, color: "#E67E22" },
+                    ].map(({ cls, icon: Icon, color }) => (
+                      classCount[cls] ? (
+                        <div key={cls} className="flex items-center gap-2">
+                          <Icon className="w-3 h-3" style={{ color }} />
+                          <span className="text-[10px] text-muted-foreground flex-1">{cls}</span>
+                          <span className="text-[10px] font-semibold">{classCount[cls]}</span>
+                        </div>
+                      ) : null
                     ))}
                   </div>
                 )}
@@ -461,7 +495,7 @@ export default function LineupBuilder() {
         <DialogContent className="sm:max-w-md max-h-[80vh] border-border/50" style={{ background: "#161924" }}>
           <DialogHeader>
             <DialogTitle>
-              Place Hero — {selectingCell ? ROW_LABELS[selectingCell.row] : ""} Row
+              Place Hero — {selectingCell ? ROW_LABELS[selectingCell.row] : ""}
             </DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto space-y-1.5 pr-1">
@@ -469,53 +503,29 @@ export default function LineupBuilder() {
               <Skeleton className="h-32" />
             ) : availableRoster.length > 0 ? (
               availableRoster
-                .filter(r => {
-                  if (!selectingCell) return true;
-                  // Suggest matching position heroes first but allow all
-                  return true;
-                })
-                .sort((a, b) => {
-                  // Sort: matching position first, then by merge level
-                  const rowPos = selectingCell ? ROW_LABELS[selectingCell.row] : "";
-                  const aMatch = a.hero.position === rowPos ? 1 : 0;
-                  const bMatch = b.hero.position === rowPos ? 1 : 0;
-                  if (aMatch !== bMatch) return bMatch - aMatch;
-                  return b.mergeLevel - a.mergeLevel;
-                })
-                .map((entry) => {
-                  const matchesRow = selectingCell && entry.hero.position === ROW_LABELS[selectingCell.row];
-                  return (
-                    <div
-                      key={entry.id}
-                      onClick={() => placeHero(entry)}
-                      className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer transition-all ${
-                        matchesRow
-                          ? "border-primary/30 bg-primary/5"
-                          : "border-border/50 hover:border-primary/20"
-                      }`}
-                      style={{ background: matchesRow ? undefined : "rgba(22, 25, 36, 0.8)" }}
-                      data-testid={`pick-hero-${entry.heroId}`}
-                    >
-                      <div className="w-8 h-8 rounded-md flex items-center justify-center border"
-                        style={{ borderColor: `${RARITY_COLORS[entry.hero.rarity]}40`, background: `${RARITY_COLORS[entry.hero.rarity]}15` }}>
-                        <span className="text-[10px] font-bold" style={{ color: RARITY_COLORS[entry.hero.rarity] }}>
-                          {entry.hero.rarity[0]}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{entry.hero.name}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {entry.hero.position} · {entry.hero.role} · M{entry.mergeLevel} · {entry.hero.elixir}⚡
-                        </p>
-                      </div>
-                      {matchesRow && (
-                        <Badge variant="outline" className="text-[9px] h-4 px-1 border-primary/30 text-primary">
-                          Match
-                        </Badge>
-                      )}
+                .sort((a, b) => b.level - a.level)
+                .map((entry) => (
+                  <div
+                    key={entry.id}
+                    onClick={() => placeHero(entry)}
+                    className="flex items-center gap-2 p-2 rounded-md border border-border/50 hover:border-primary/20 cursor-pointer transition-all"
+                    style={{ background: "rgba(22, 25, 36, 0.8)" }}
+                    data-testid={`pick-hero-${entry.id}`}
+                  >
+                    <div className="w-8 h-8 rounded-md flex items-center justify-center border"
+                      style={{ borderColor: `${RARITY_COLORS[entry.hero.rarity]}40`, background: `${RARITY_COLORS[entry.hero.rarity]}15` }}>
+                      <span className="text-[10px] font-bold" style={{ color: RARITY_COLORS[entry.hero.rarity] }}>
+                        {entry.hero.rarity[0]}
+                      </span>
                     </div>
-                  );
-                })
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{entry.hero.name}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {entry.hero.placement} · {entry.hero.class} · L{entry.level} · {entry.hero.elixir}⚡
+                      </p>
+                    </div>
+                  </div>
+                ))
             ) : (
               <p className="text-xs text-muted-foreground text-center py-4">
                 {roster?.length ? "All roster heroes are placed" : "Add heroes to your roster first"}

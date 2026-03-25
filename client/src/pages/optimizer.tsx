@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, ChevronRight, Info, ArrowRight } from "lucide-react";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { GAME_MODES, FORMATIONS, RARITY_COLORS, RARITY_POWER_MULTIPLIER } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero } from "@shared/schema";
 
-const roleIcons: Record<string, any> = { Tank: Shield, DPS: Swords, Support: Heart, Control: Wand2 };
+const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
 
 export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
@@ -178,7 +178,7 @@ export default function Optimizer() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {result.reasoning?.map((entry: any, idx: number) => {
                   const hero = heroes?.find(h => h.id === entry.heroId);
-                  const RoleIcon = roleIcons[hero?.role || "DPS"] || Swords;
+                  const ClassIcon = classIcons[hero?.class || "Warrior"] || Swords;
                   const rarityColor = RARITY_COLORS[hero?.rarity || "Common"];
                   const lineupEntry = result.lineup?.find((l: any) => l.heroId === entry.heroId);
                   return (
@@ -187,24 +187,24 @@ export default function Optimizer() {
                         <div className="flex items-start gap-2.5">
                           <div className="w-9 h-9 rounded-md flex items-center justify-center border shrink-0"
                             style={{ borderColor: `${rarityColor}30`, background: `${rarityColor}10` }}>
-                            <RoleIcon className="w-4 h-4" style={{ color: rarityColor }} />
+                            <ClassIcon className="w-4 h-4" style={{ color: rarityColor }} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-xs font-semibold truncate" data-testid={`text-result-hero-${idx}`}>{entry.heroName}</p>
                               {lineupEntry && (
                                 <Badge variant="outline" className="text-[9px] h-4 px-1 shrink-0">
-                                  M{lineupEntry.mergeLevel}
+                                  L{lineupEntry.level}
                                 </Badge>
                               )}
                             </div>
                             <p className="text-[10px] text-muted-foreground">
-                              {hero?.position} · {hero?.role} · {hero?.elixir}⚡
+                              {hero?.placement} · {hero?.class} · {hero?.elixir}⚡
                             </p>
                             <p className="text-[10px] text-primary/70 mt-1">{entry.reasons}</p>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-xs font-bold">{entry.score}</p>
+                            <p className="text-xs font-bold">{Math.round(entry.score)}</p>
                             <p className="text-[9px] text-muted-foreground">score</p>
                           </div>
                         </div>
@@ -218,19 +218,19 @@ export default function Optimizer() {
             {/* Row Breakdown */}
             {result.placements && (
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Position Breakdown</h3>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Placement Breakdown</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {(["Front", "Mid", "Back"] as const).map((pos) => {
-                    const heroes = result.placements[pos] || [];
+                    const posHeroes = result.placements[pos] || [];
                     return (
                       <Card key={pos} className="border-border/50" style={{ background: "#161924" }}>
                         <CardContent className="p-3">
                           <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{pos} Row</h4>
-                          {heroes.length === 0 ? (
+                          {posHeroes.length === 0 ? (
                             <p className="text-[10px] text-muted-foreground/50">No heroes</p>
                           ) : (
                             <div className="space-y-1">
-                              {heroes.map((h: any, i: number) => (
+                              {posHeroes.map((h: any, i: number) => (
                                 <div key={i} className="flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: RARITY_COLORS[h.hero?.rarity || "Common"] }} />
                                   <span className="text-[10px] truncate">{h.hero?.name}</span>

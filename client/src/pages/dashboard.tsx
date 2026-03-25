@@ -3,8 +3,8 @@ import { Link } from "wouter";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Shield, Swords, Brain, ChevronRight, Zap, Trophy, Target } from "lucide-react";
-import { RARITY_POWER_MULTIPLIER } from "@/lib/constants";
+import { Users, Shield, Swords, Brain, ChevronRight, Zap, Trophy } from "lucide-react";
+import { getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 export default function Dashboard() {
@@ -22,10 +22,9 @@ export default function Dashboard() {
 
   const isLoading = heroesLoading || rosterLoading || lineupsLoading;
 
-  // Calculate roster power
+  // Calculate roster power from stats JSON
   const rosterPower = roster?.reduce((sum, entry) => {
-    const multiplier = RARITY_POWER_MULTIPLIER[entry.hero?.rarity] || 1;
-    return sum + (entry.mergeLevel * multiplier * 100) + (entry.starLevel * 50);
+    return sum + getHeroPower(entry.hero?.stats || "{}", entry.level);
   }, 0) || 0;
 
   const quickLinks = [
@@ -64,7 +63,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold" data-testid="text-heroes-owned">{roster?.length || 0}</p>
-                    <p className="text-xs text-muted-foreground">Heroes Owned</p>
+                    <p className="text-xs text-muted-foreground">Troops Owned</p>
                   </div>
                 </div>
               )}
@@ -137,7 +136,7 @@ export default function Dashboard() {
         {/* Recent roster heroes */}
         {roster && roster.length > 0 && (
           <div>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Top Roster Heroes</h2>
+            <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Top Roster Troops</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
               {roster.slice(0, 5).map((entry) => (
                 <Card key={entry.id} className="border-border/50" style={{ background: "#161924" }}>
@@ -146,7 +145,7 @@ export default function Dashboard() {
                       {entry.hero.name}
                     </p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Merge {entry.mergeLevel} · ★{entry.starLevel}
+                      Level {entry.level}
                     </p>
                   </CardContent>
                 </Card>

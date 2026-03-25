@@ -7,12 +7,20 @@ export const heroes = sqliteTable("heroes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   rarity: text("rarity").notNull(), // Mythic, Legendary, Epic, Rare, Common
-  position: text("position").notNull(), // Front, Mid, Back
-  role: text("role").notNull(), // Tank, DPS, Support, Control
+  class: text("class").notNull(), // Warrior, Marksman, Mage, Support, etc.
   attribute: text("attribute").notNull(), // Physical, Fire, Water, Wood, Nature, etc.
+  weakness: text("weakness"), // nullable
+  placement: text("placement").notNull(), // Front, Mid, Back
+  damageType: text("damage_type").notNull(), // Single, Area
+  defense: text("defense").notNull(), // Low, Medium, High, Very High
+  moveSpeed: text("move_speed").notNull(),
+  atkSpeed: text("atk_speed"),
   elixir: integer("elixir").notNull(),
   ability: text("ability").notNull(),
   abilityDesc: text("ability_desc").notNull(),
+  level6Upgrade: text("level6_upgrade"),
+  level7Upgrade: text("level7_upgrade"),
+  stats: text("stats").notNull(), // JSON string of {level: {hp, atk}}
   tier: text("tier").notNull(), // S, A, B, C, D
 });
 
@@ -33,17 +41,16 @@ export const sessions = sqliteTable("sessions", {
 export const rosters = sqliteTable("rosters", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   heroId: integer("hero_id").notNull().references(() => heroes.id),
-  mergeLevel: integer("merge_level").notNull().default(1),
-  starLevel: integer("star_level").notNull().default(1),
+  level: integer("level").notNull().default(1),
   userId: integer("user_id").notNull().references(() => users.id),
 });
 
 export const lineups = sqliteTable("lineups", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
-  mode: text("mode").notNull(), // Arena, Co-op, Adventure, Infinity War, Clan Hunt
-  formation: text("formation"), // Dash, Backstab, Outflank, Split (for Arena)
-  heroSelections: text("hero_selections").notNull(), // JSON string of placement data
+  mode: text("mode").notNull(),
+  formation: text("formation"),
+  heroSelections: text("hero_selections").notNull(),
   userId: integer("user_id").notNull().references(() => users.id),
 });
 
@@ -52,8 +59,7 @@ export const insertHeroSchema = createInsertSchema(heroes).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertSessionSchema = createInsertSchema(sessions).omit({ id: true, createdAt: true });
 export const insertRosterSchema = createInsertSchema(rosters).omit({ id: true }).extend({
-  mergeLevel: z.number().min(1).max(15),
-  starLevel: z.number().min(1).max(5),
+  level: z.number().min(1).max(9),
 });
 export const insertLineupSchema = createInsertSchema(lineups).omit({ id: true });
 

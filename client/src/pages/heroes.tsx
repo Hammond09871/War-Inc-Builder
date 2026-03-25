@@ -7,14 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search } from "lucide-react";
-import { RARITIES, ROLES, POSITIONS, ATTRIBUTES, TIERS } from "@/lib/constants";
+import { RARITIES, CLASSES, PLACEMENTS, ATTRIBUTES, TIERS } from "@/lib/constants";
 import type { Hero } from "@shared/schema";
 
 export default function HeroesDatabase() {
   const [search, setSearch] = useState("");
   const [filterRarity, setFilterRarity] = useState<string>("all");
-  const [filterRole, setFilterRole] = useState<string>("all");
-  const [filterPosition, setFilterPosition] = useState<string>("all");
+  const [filterClass, setFilterClass] = useState<string>("all");
+  const [filterPlacement, setFilterPlacement] = useState<string>("all");
   const [filterAttribute, setFilterAttribute] = useState<string>("all");
   const [filterTier, setFilterTier] = useState<string>("all");
   const [selectedHero, setSelectedHero] = useState<Hero | null>(null);
@@ -26,8 +26,8 @@ export default function HeroesDatabase() {
   const filteredHeroes = heroes?.filter((hero) => {
     if (search && !hero.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterRarity !== "all" && hero.rarity !== filterRarity) return false;
-    if (filterRole !== "all" && hero.role !== filterRole) return false;
-    if (filterPosition !== "all" && hero.position !== filterPosition) return false;
+    if (filterClass !== "all" && hero.class !== filterClass) return false;
+    if (filterPlacement !== "all" && hero.placement !== filterPlacement) return false;
     if (filterAttribute !== "all" && hero.attribute !== filterAttribute) return false;
     if (filterTier !== "all" && hero.tier !== filterTier) return false;
     return true;
@@ -71,23 +71,23 @@ export default function HeroesDatabase() {
               </SelectContent>
             </Select>
 
-            <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-[110px] h-8 text-xs" style={{ background: "#161924" }} data-testid="select-role">
-                <SelectValue placeholder="Role" />
+            <Select value={filterClass} onValueChange={setFilterClass}>
+              <SelectTrigger className="w-[110px] h-8 text-xs" style={{ background: "#161924" }} data-testid="select-class">
+                <SelectValue placeholder="Class" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                <SelectItem value="all">All Classes</SelectItem>
+                {CLASSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
 
-            <Select value={filterPosition} onValueChange={setFilterPosition}>
-              <SelectTrigger className="w-[110px] h-8 text-xs" style={{ background: "#161924" }} data-testid="select-position">
-                <SelectValue placeholder="Position" />
+            <Select value={filterPlacement} onValueChange={setFilterPlacement}>
+              <SelectTrigger className="w-[110px] h-8 text-xs" style={{ background: "#161924" }} data-testid="select-placement">
+                <SelectValue placeholder="Placement" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Positions</SelectItem>
-                {POSITIONS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                <SelectItem value="all">All Placements</SelectItem>
+                {PLACEMENTS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
               </SelectContent>
             </Select>
 
@@ -141,7 +141,7 @@ export default function HeroesDatabase() {
 
       {/* Hero Detail Dialog */}
       <Dialog open={!!selectedHero} onOpenChange={() => setSelectedHero(null)}>
-        <DialogContent className="sm:max-w-md border-border/50" style={{ background: "#161924" }}>
+        <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto border-border/50" style={{ background: "#161924" }}>
           <DialogHeader>
             <DialogTitle className="sr-only">Hero Details</DialogTitle>
           </DialogHeader>

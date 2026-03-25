@@ -8,10 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Star, Camera, Search, Zap } from "lucide-react";
+import { Plus, Trash2, Camera, Search, Zap } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { RARITY_COLORS, RARITY_POWER_MULTIPLIER } from "@/lib/constants";
+import { RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero } from "@shared/schema";
 
 export default function MyRoster() {
@@ -30,7 +30,7 @@ export default function MyRoster() {
 
   const addMutation = useMutation({
     mutationFn: async (heroId: number) => {
-      const res = await apiRequest("POST", "/api/roster", { heroId, mergeLevel: 1, starLevel: 1 });
+      const res = await apiRequest("POST", "/api/roster", { heroId, level: 1 });
       return res.json();
     },
     onSuccess: () => {
@@ -43,8 +43,8 @@ export default function MyRoster() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, mergeLevel, starLevel }: { id: number; mergeLevel?: number; starLevel?: number }) => {
-      const res = await apiRequest("PATCH", `/api/roster/${id}`, { mergeLevel, starLevel });
+    mutationFn: async ({ id, level }: { id: number; level: number }) => {
+      const res = await apiRequest("PATCH", `/api/roster/${id}`, { level });
       return res.json();
     },
     onSuccess: () => {
@@ -63,15 +63,13 @@ export default function MyRoster() {
   });
 
   const totalPower = roster?.reduce((sum, entry) => {
-    const multiplier = RARITY_POWER_MULTIPLIER[entry.hero?.rarity] || 1;
-    return sum + (entry.mergeLevel * multiplier * 100) + (entry.starLevel * 50);
+    return sum + getHeroPower(entry.hero?.stats || "{}", entry.level);
   }, 0) || 0;
 
-  const rosterHeroIds = new Set(roster?.map(r => r.heroId) || []);
-  const availableHeroes = heroes?.filter(h => !rosterHeroIds.has(h.id)) || [];
-  const filteredAvailable = availableHeroes.filter(h =>
+  // Allow all heroes (duplicates allowed)
+  const filteredAvailable = heroes?.filter(h =>
     !heroSearch || h.name.toLowerCase().includes(heroSearch.toLowerCase())
-  );
+  ) || [];
 
   return (
     <AppLayout>
@@ -81,7 +79,7 @@ export default function MyRoster() {
           <div>
             <h1 className="text-lg font-bold" data-testid="text-page-title">My Roster</h1>
             <p className="text-xs text-muted-foreground mt-1">
-              {roster?.length || 0} heroes · {totalPower.toLocaleString()} power
+              {roster?.length || 0} troops · {totalPower.toLocaleString()} power
             </p>
           </div>
           <div className="flex gap-2">
@@ -99,12 +97,12 @@ export default function MyRoster() {
               <DialogTrigger asChild>
                 <Button size="sm" className="text-xs gap-1.5" data-testid="button-add-hero">
                   <Plus className="w-3.5 h-3.5" />
-                  Add Hero
+                  Add Troop
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg max-h-[80vh] border-border/50" style={{ background: "#161924" }}>
                 <DialogHeader>
-                  <DialogTitle>Add Hero to Roster</DialogTitle>
+                  <DialogTitle>Add Troop to Roster</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <div className="relative">
@@ -134,7 +132,7 @@ export default function MyRoster() {
                     ))}
                     {filteredAvailable.length === 0 && (
                       <p className="text-xs text-muted-foreground text-center py-4">
-                        {heroSearch ? "No heroes match your search" : "All heroes are in your roster!"}
+                        No heroes match your search
                       </p>
                     )}
                   </div>
@@ -155,7 +153,7 @@ export default function MyRoster() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {roster.map((entry) => {
               const rarityColor = RARITY_COLORS[entry.hero?.rarity] || "#95A5A6";
-              const power = (entry.mergeLevel * (RARITY_POWER_MULTIPLIER[entry.hero?.rarity] || 1) * 100) + (entry.starLevel * 50);
+              const power = getHeroPower(entry.hero?.stats || "{}", entry.level);
               return (
                 <Card key={entry.id} className="border-border/50 overflow-hidden" style={{ background: "#161924" }}>
                   <CardContent className="p-4">
@@ -172,7 +170,7 @@ export default function MyRoster() {
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px]" style={{ color: rarityColor }}>{entry.hero?.rarity}</span>
                             <span className="text-[10px] text-muted-foreground">·</span>
-                            <span className="text-[10px] text-muted-foreground">{entry.hero?.position} {entry.hero?.role}</span>
+                            <span className="text-[10px] text-muted-foreground">{entry.hero?.placement} {entry.hero?.class}</span>
                           </div>
                         </div>
                       </div>
@@ -187,43 +185,21 @@ export default function MyRoster() {
                       </Button>
                     </div>
 
-                    {/* Merge Level */}
+                    {/* Level */}
                     <div className="space-y-1.5 mb-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Merge Level</span>
-                        <span className="text-xs font-bold text-primary" data-testid={`text-merge-${entry.id}`}>{entry.mergeLevel}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Level</span>
+                        <span className="text-xs font-bold text-primary" data-testid={`text-level-${entry.id}`}>{entry.level}</span>
                       </div>
                       <Slider
-                        value={[entry.mergeLevel]}
+                        value={[entry.level]}
                         min={1}
-                        max={15}
+                        max={9}
                         step={1}
-                        onValueChange={([v]) => updateMutation.mutate({ id: entry.id, mergeLevel: v })}
+                        onValueChange={([v]) => updateMutation.mutate({ id: entry.id, level: v })}
                         className="w-full"
-                        data-testid={`slider-merge-${entry.id}`}
+                        data-testid={`slider-level-${entry.id}`}
                       />
-                    </div>
-
-                    {/* Star Level */}
-                    <div className="space-y-1.5 mb-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Star Level</span>
-                        <span className="text-xs font-bold" data-testid={`text-stars-${entry.id}`}>{"★".repeat(entry.starLevel)}</span>
-                      </div>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            onClick={() => updateMutation.mutate({ id: entry.id, starLevel: star })}
-                            className="p-0.5 transition-colors"
-                            data-testid={`button-star-${entry.id}-${star}`}
-                          >
-                            <Star
-                              className={`w-4 h-4 ${star <= entry.starLevel ? "fill-primary text-primary" : "text-muted-foreground/30"}`}
-                            />
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Power */}
@@ -244,7 +220,7 @@ export default function MyRoster() {
             </div>
             <p className="text-sm text-muted-foreground mb-3">Your roster is empty</p>
             <Button size="sm" onClick={() => setAddDialogOpen(true)} data-testid="button-add-first-hero">
-              <Plus className="w-4 h-4 mr-1" /> Add Your First Hero
+              <Plus className="w-4 h-4 mr-1" /> Add Your First Troop
             </Button>
           </div>
         )}
@@ -262,7 +238,6 @@ export default function MyRoster() {
               <p className="text-sm text-muted-foreground mb-1">Coming Soon</p>
               <p className="text-xs text-muted-foreground/60">
                 Screenshot OCR import will automatically detect and add heroes from your in-game roster screenshots.
-                This feature would connect to your War Inc Rising account in a future update.
               </p>
             </div>
           </div>

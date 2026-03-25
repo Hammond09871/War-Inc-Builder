@@ -20,12 +20,20 @@ sqlite.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     rarity TEXT NOT NULL,
-    position TEXT NOT NULL,
-    role TEXT NOT NULL,
+    class TEXT NOT NULL,
     attribute TEXT NOT NULL,
+    weakness TEXT,
+    placement TEXT NOT NULL,
+    damage_type TEXT NOT NULL,
+    defense TEXT NOT NULL,
+    move_speed TEXT NOT NULL,
+    atk_speed TEXT,
     elixir INTEGER NOT NULL,
     ability TEXT NOT NULL,
     ability_desc TEXT NOT NULL,
+    level6_upgrade TEXT,
+    level7_upgrade TEXT,
+    stats TEXT NOT NULL,
     tier TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS users (
@@ -43,8 +51,7 @@ sqlite.exec(`
   CREATE TABLE IF NOT EXISTS rosters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     hero_id INTEGER NOT NULL REFERENCES heroes(id),
-    merge_level INTEGER NOT NULL DEFAULT 1,
-    star_level INTEGER NOT NULL DEFAULT 1,
+    level INTEGER NOT NULL DEFAULT 1,
     user_id INTEGER NOT NULL REFERENCES users(id)
   );
   CREATE TABLE IF NOT EXISTS lineups (
@@ -63,7 +70,7 @@ export interface IStorage {
   // Heroes
   getAllHeroes(): Hero[];
   getHeroById(id: number): Hero | undefined;
-  getHeroesFiltered(filters: { rarity?: string; role?: string; position?: string; attribute?: string }): Hero[];
+  getHeroesFiltered(filters: { rarity?: string; class?: string; placement?: string; attribute?: string }): Hero[];
   insertHero(hero: InsertHero): Hero;
   getHeroCount(): number;
 
@@ -81,9 +88,8 @@ export interface IStorage {
   getRoster(userId: number): RosterWithHero[];
   getRosterEntry(id: number): Roster | undefined;
   addToRoster(entry: InsertRoster): Roster;
-  updateRosterEntry(id: number, mergeLevel: number, starLevel: number): Roster | undefined;
+  updateRosterLevel(id: number, level: number): Roster | undefined;
   removeFromRoster(id: number): void;
-  isHeroInRoster(heroId: number, userId: number): boolean;
 
   // Lineups
   getLineups(userId: number): Lineup[];
@@ -93,7 +99,7 @@ export interface IStorage {
 
   // Export/Import
   exportUserData(userId: number): { roster: RosterWithHero[]; lineups: Lineup[] };
-  importUserData(userId: number, data: { roster: { heroId: number; mergeLevel: number; starLevel: number }[]; lineups: { name: string; mode: string; formation: string | null; heroSelections: string }[] }): void;
+  importUserData(userId: number, data: { roster: { heroId: number; level: number }[]; lineups: { name: string; mode: string; formation: string | null; heroSelections: string }[] }): void;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -106,13 +112,13 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(heroes).where(eq(heroes.id, id)).get();
   }
 
-  getHeroesFiltered(filters: { rarity?: string; role?: string; position?: string; attribute?: string }): Hero[] {
+  getHeroesFiltered(filters: { rarity?: string; class?: string; placement?: string; attribute?: string }): Hero[] {
     let query = db.select().from(heroes);
     const conditions: any[] = [];
 
     if (filters.rarity) conditions.push(eq(heroes.rarity, filters.rarity));
-    if (filters.role) conditions.push(eq(heroes.role, filters.role));
-    if (filters.position) conditions.push(eq(heroes.position, filters.position));
+    if (filters.class) conditions.push(eq(heroes.class, filters.class));
+    if (filters.placement) conditions.push(eq(heroes.placement, filters.placement));
     if (filters.attribute) conditions.push(eq(heroes.attribute, filters.attribute));
 
     if (conditions.length > 0) {
@@ -145,7 +151,6 @@ export class DatabaseStorage implements IStorage {
 
   // Sessions
   createSession(visitorId: string, userId: number): Session {
-    // Upsert: delete existing session for this visitor, then insert
     db.delete(sessions).where(eq(sessions.visitorId, visitorId)).run();
     return db.insert(sessions).values({ visitorId, userId }).returning().get();
   }
@@ -175,9 +180,9 @@ export class DatabaseStorage implements IStorage {
     return db.insert(rosters).values(entry).returning().get();
   }
 
-  updateRosterEntry(id: number, mergeLevel: number, starLevel: number): Roster | undefined {
+  updateRosterLevel(id: number, level: number): Roster | undefined {
     return db.update(rosters)
-      .set({ mergeLevel, starLevel })
+      .set({ level })
       .where(eq(rosters.id, id))
       .returning()
       .get();
@@ -185,11 +190,6 @@ export class DatabaseStorage implements IStorage {
 
   removeFromRoster(id: number): void {
     db.delete(rosters).where(eq(rosters.id, id)).run();
-  }
-
-  isHeroInRoster(heroId: number, userId: number): boolean {
-    const entry = db.select().from(rosters).where(and(eq(rosters.heroId, heroId), eq(rosters.userId, userId))).get();
-    return !!entry;
   }
 
   // Lineups
@@ -217,22 +217,18 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  importUserData(userId: number, data: { roster: { heroId: number; mergeLevel: number; starLevel: number }[]; lineups: { name: string; mode: string; formation: string | null; heroSelections: string }[] }): void {
-    // Clear existing data for this user
+  importUserData(userId: number, data: { roster: { heroId: number; level: number }[]; lineups: { name: string; mode: string; formation: string | null; heroSelections: string }[] }): void {
     db.delete(rosters).where(eq(rosters.userId, userId)).run();
     db.delete(lineups).where(eq(lineups.userId, userId)).run();
 
-    // Import roster
     for (const entry of data.roster) {
       db.insert(rosters).values({
         heroId: entry.heroId,
-        mergeLevel: entry.mergeLevel,
-        starLevel: entry.starLevel,
+        level: entry.level,
         userId,
       }).run();
     }
 
-    // Import lineups
     for (const lineup of data.lineups) {
       db.insert(lineups).values({
         name: lineup.name,
