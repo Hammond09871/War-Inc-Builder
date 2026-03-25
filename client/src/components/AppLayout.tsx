@@ -47,10 +47,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <WarIncLogo />
             <div className="flex flex-col leading-tight">
               <span className="text-sm font-semibold tracking-wide" style={{ color: "#D4A843" }}>
-                WAR INC
+                War Inc Rising
               </span>
               <span className="text-[10px] font-medium tracking-widest text-muted-foreground uppercase">
-                Rising Builder
+                Lineup Builder
               </span>
             </div>
           </Link>

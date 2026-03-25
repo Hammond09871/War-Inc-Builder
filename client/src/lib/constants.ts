@@ -35,7 +35,7 @@ export const CLASSES = ["Warrior", "Marksman", "Mage", "Support", "Tank", "Assas
 export const RARITIES = ["Mythic", "Legendary", "Epic", "Rare", "Common"] as const;
 export const TIERS = ["S", "A", "B", "C", "D"] as const;
 export const ATTRIBUTES = ["Physical", "Fire", "Water", "Wood", "Earth", "Frost", "Holy", "Shadow", "Wind"] as const;
-export const GAME_MODES = ["Arena", "Co-op", "Adventure", "Infinity War", "Clan Hunt"] as const;
+export const GAME_MODES = ["Arena", "Hunting", "Adventure", "Infinite War", "Clan War", "Clan Hunt"] as const;
 export const FORMATIONS = ["Dash", "Backstab", "Outflank", "Split"] as const;
 
 export const FORMATION_INFO: Record<string, { description: string; strongAgainst: string; weakAgainst: string; tips: string }> = {

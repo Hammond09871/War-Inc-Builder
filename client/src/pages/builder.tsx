@@ -5,7 +5,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+
+const ELIXIR_OPTIONS = Array.from({ length: 20 }, (_, i) => (i + 1) * 50);
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair } from "lucide-react";
@@ -60,6 +63,7 @@ export default function LineupBuilder() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [lineupName, setLineupName] = useState("");
   const [formationInfoOpen, setFormationInfoOpen] = useState(false);
+  const [elixirLimit, setElixirLimit] = useState(100);
   const { toast } = useToast();
 
   const { data: roster, isLoading: rosterLoading } = useQuery<RosterWithHero[]>({
@@ -107,6 +111,7 @@ export default function LineupBuilder() {
       const res = await apiRequest("POST", "/api/optimize", {
         mode,
         formation: mode === "Arena" ? formation : undefined,
+        elixirBudget: elixirLimit,
       });
       return res.json();
     },
@@ -299,6 +304,21 @@ export default function LineupBuilder() {
           </div>
         )}
 
+        {/* Elixir Limit */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">Elixir Limit:</span>
+          <Select value={String(elixirLimit)} onValueChange={(v) => setElixirLimit(Number(v))}>
+            <SelectTrigger className="h-8 w-28 text-xs" style={{ background: "#1E2233" }} data-testid="select-elixir-limit">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ELIXIR_OPTIONS.map((v) => (
+                <SelectItem key={v} value={String(v)}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
           {/* Battlefield Grid */}
           <div className="space-y-4">
@@ -306,8 +326,8 @@ export default function LineupBuilder() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] text-primary/60 uppercase tracking-wider font-semibold">Battlefield</span>
                 <div className="flex items-center gap-3">
-                  <span className={`text-xs font-medium ${totalElixir > 100 ? "text-destructive" : "text-primary"}`} data-testid="text-elixir-count">
-                    ⚡ {totalElixir}/100
+                  <span className={`text-xs font-medium ${totalElixir > elixirLimit ? "text-destructive" : "text-primary"}`} data-testid="text-elixir-count">
+                    ⚡ {totalElixir}/{elixirLimit}
                   </span>
                 </div>
               </div>
@@ -431,8 +451,8 @@ export default function LineupBuilder() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Elixir</span>
-                  <span className={`text-xs font-semibold ${totalElixir > 100 ? "text-destructive" : ""}`}>
-                    {totalElixir}/100
+                  <span className={`text-xs font-semibold ${totalElixir > elixirLimit ? "text-destructive" : ""}`}>
+                    {totalElixir}/{elixirLimit}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

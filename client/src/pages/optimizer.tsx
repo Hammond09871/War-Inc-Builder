@@ -17,6 +17,7 @@ const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, 
 export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
   const [enemyFormation, setEnemyFormation] = useState<string>("none");
+  const [elixirBudget, setElixirBudget] = useState(100);
   const [result, setResult] = useState<any>(null);
   const { toast } = useToast();
 
@@ -30,7 +31,7 @@ export default function Optimizer() {
 
   const optimizeMutation = useMutation({
     mutationFn: async () => {
-      const body: any = { mode };
+      const body: any = { mode, elixirBudget };
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
       }
@@ -47,9 +48,10 @@ export default function Optimizer() {
 
   const modeDescriptions: Record<string, string> = {
     Arena: "PvP battles where formation and counter-picks matter most",
-    "Co-op": "Cooperative gameplay prioritizing DPS and support synergy",
+    Hunting: "Boss encounters (Evil Ivy, Twin-Dragon) prioritizing single-target DPS",
     Adventure: "PvE content needing balanced teams with strong front line",
-    "Infinity War": "Endurance mode valuing sustainability and healing",
+    "Infinite War": "Endurance mode valuing sustainability and healing",
+    "Clan War": "Competitive clan battles requiring balanced, versatile teams",
     "Clan Hunt": "Boss damage mode prioritizing single-target DPS",
   };
 
@@ -64,7 +66,7 @@ export default function Optimizer() {
         </div>
 
         {/* Configuration */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Game Mode */}
           <Card className="border-border/50" style={{ background: "#161924" }}>
             <CardContent className="p-4 space-y-3">
@@ -113,6 +115,24 @@ export default function Optimizer() {
               )}
             </CardContent>
           </Card>
+
+          {/* Elixir Budget */}
+          <Card className="border-border/50" style={{ background: "#161924" }}>
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Elixir Budget</h3>
+              <Select value={String(elixirBudget)} onValueChange={(v) => setElixirBudget(Number(v))}>
+                <SelectTrigger className="h-9 text-sm" style={{ background: "#1E2233" }} data-testid="select-elixir-budget">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 20 }, (_, i) => (i + 1) * 50).map((v) => (
+                    <SelectItem key={v} value={String(v)}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">Max elixir cost for the optimized lineup</p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Optimize Button */}
@@ -150,7 +170,7 @@ export default function Optimizer() {
                     <p className="text-[10px] text-muted-foreground">Power</p>
                   </div>
                   <div className="text-center">
-                    <p className={`text-lg font-bold ${result.totalElixir > 100 ? "text-destructive" : ""}`} data-testid="text-result-elixir">
+                    <p className={`text-lg font-bold ${result.totalElixir > elixirBudget ? "text-destructive" : ""}`} data-testid="text-result-elixir">
                       {result.totalElixir}
                     </p>
                     <p className="text-[10px] text-muted-foreground">Elixir</p>
