@@ -65,6 +65,27 @@ export const FORMATION_INFO: Record<string, { description: string; strongAgainst
   },
 };
 
+export const HUNTING_BOSSES = {
+  "Twin-Dragon": {
+    name: "Twin-Dragon",
+    description: "A cursed twin, one with burning heat, and the other with frost cold.",
+    attribute: "Water",
+    weakness: "Wind",
+    resistances: ["Water", "Fire"],
+    hp: "640.1k",
+    tips: "Prioritize Wind-attribute troops. Avoid Water and Fire troops — Twin-Dragon has innate resistance to both."
+  },
+  "Evil Ivy": {
+    name: "Evil Ivy",
+    description: "Feared by people and monster, this creature can make nearby monsters move faster, and may also bind your weapons.",
+    attribute: "Wood",
+    weakness: "Fire",
+    resistances: ["Wood"],
+    hp: "8.54M",
+    tips: "Prioritize Fire-attribute troops. Evil Ivy generates an aura that reduces enemy defense, so high-ATK burst damage troops are ideal."
+  }
+} as const;
+
 // Helper to get HP+ATK power from stats JSON at a given level
 export function getHeroPower(statsJson: string, level: number): number {
   try {

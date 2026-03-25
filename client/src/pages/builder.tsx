@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { GAME_MODES, FORMATIONS, FORMATION_INFO, RARITY_COLORS, getHeroPower } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 type PlacedHero = {
@@ -58,6 +58,7 @@ function makeEmptyGrid(): (PlacedHero | null)[][] {
 export default function LineupBuilder() {
   const [mode, setMode] = useState("Arena");
   const [formation, setFormation] = useState("Dash");
+  const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
   const [grid, setGrid] = useState<(PlacedHero | null)[][]>(makeEmptyGrid());
   const [selectingCell, setSelectingCell] = useState<{ row: number; col: number } | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -111,6 +112,7 @@ export default function LineupBuilder() {
       const res = await apiRequest("POST", "/api/optimize", {
         mode,
         formation: mode === "Arena" ? formation : undefined,
+        huntingBoss: mode === "Hunting" ? huntingBoss : undefined,
         elixirBudget: elixirLimit,
       });
       return res.json();
@@ -304,6 +306,27 @@ export default function LineupBuilder() {
           </div>
         )}
 
+        {/* Boss Selector (Hunting only) */}
+        {mode === "Hunting" && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-muted-foreground">Boss:</span>
+            <div className="flex gap-1.5">
+              {Object.keys(HUNTING_BOSSES).map((b) => (
+                <Button
+                  key={b}
+                  variant={huntingBoss === b ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs h-7 px-3"
+                  onClick={() => setHuntingBoss(b)}
+                  data-testid={`button-boss-${b.toLowerCase().replace(/\s/g, "-")}`}
+                >
+                  {b}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Elixir Limit */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">Elixir Limit:</span>
@@ -440,6 +463,44 @@ export default function LineupBuilder() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Boss Info (Hunting only) */}
+            {mode === "Hunting" && (() => {
+              const boss = HUNTING_BOSSES[huntingBoss as keyof typeof HUNTING_BOSSES];
+              if (!boss) return null;
+              return (
+                <Card className="border-border/50" style={{ background: "#161924" }}>
+                  <CardContent className="p-3 space-y-2">
+                    <h3 className="text-xs font-semibold text-primary">{boss.name}</h3>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">{boss.description}</p>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <span className="text-muted-foreground font-medium">Attribute:</span>
+                        <p className="text-foreground">{boss.attribute}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground font-medium">HP:</span>
+                        <p className="text-foreground">{boss.hp}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <span className="text-green-400 font-medium">Weakness:</span>
+                        <p className="text-foreground">{boss.weakness}</p>
+                      </div>
+                      <div>
+                        <span className="text-red-400 font-medium">Resists:</span>
+                        <p className="text-foreground">{boss.resistances.join(", ")}</p>
+                      </div>
+                    </div>
+                    <div className="text-[10px] border-t border-border/30 pt-2 mt-1">
+                      <span className="text-yellow-400 font-medium">Tips: </span>
+                      <span className="text-muted-foreground">{boss.tips}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Team Summary */}
             <Card className="border-border/50" style={{ background: "#161924" }}>

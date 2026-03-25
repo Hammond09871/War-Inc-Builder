@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { GAME_MODES, FORMATIONS, RARITY_COLORS, getHeroPower } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
@@ -17,6 +17,7 @@ const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, 
 export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
   const [enemyFormation, setEnemyFormation] = useState<string>("none");
+  const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
   const [elixirBudget, setElixirBudget] = useState(100);
   const [result, setResult] = useState<any>(null);
   const { toast } = useToast();
@@ -34,6 +35,9 @@ export default function Optimizer() {
       const body: any = { mode, elixirBudget };
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
+      }
+      if (mode === "Hunting") {
+        body.huntingBoss = huntingBoss;
       }
       const res = await apiRequest("POST", "/api/optimize", body);
       return res.json();
@@ -85,11 +89,11 @@ export default function Optimizer() {
             </CardContent>
           </Card>
 
-          {/* Enemy Setup (Arena only) */}
+          {/* Enemy Setup (Arena) / Boss Selector (Hunting) / Options (other) */}
           <Card className="border-border/50" style={{ background: "#161924" }}>
             <CardContent className="p-4 space-y-3">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {mode === "Arena" ? "Enemy Formation" : "Options"}
+                {mode === "Arena" ? "Enemy Formation" : mode === "Hunting" ? "Hunting Boss" : "Options"}
               </h3>
               {mode === "Arena" ? (
                 <>
@@ -107,6 +111,33 @@ export default function Optimizer() {
                   <p className="text-[10px] text-muted-foreground">
                     Select the enemy's formation for counter-pick analysis
                   </p>
+                </>
+              ) : mode === "Hunting" ? (
+                <>
+                  <Select value={huntingBoss} onValueChange={setHuntingBoss}>
+                    <SelectTrigger className="h-9 text-sm" style={{ background: "#1E2233" }} data-testid="select-hunting-boss">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(HUNTING_BOSSES).map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {(() => {
+                    const boss = HUNTING_BOSSES[huntingBoss as keyof typeof HUNTING_BOSSES];
+                    if (!boss) return null;
+                    return (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground">{boss.description}</p>
+                        <div className="flex gap-3 text-[10px]">
+                          <span><span className="text-green-400 font-medium">Weak to:</span> {boss.weakness}</span>
+                          <span><span className="text-red-400 font-medium">Resists:</span> {boss.resistances.join(", ")}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/70 italic">{boss.tips}</p>
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">

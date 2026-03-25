@@ -298,7 +298,7 @@ export async function registerRoutes(
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
 
-    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget } = req.body;
+    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
@@ -307,7 +307,7 @@ export async function registerRoutes(
     }
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
-    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds);
+    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss);
     res.json(result);
   });
 
@@ -324,6 +324,16 @@ function getHeroPower(statsJson: string, level: number): number {
   return 0;
 }
 
+// Helper to get ATK from stats JSON at a given level
+function getHeroAtk(statsJson: string, level: number): number {
+  try {
+    const stats = JSON.parse(statsJson);
+    const lvl = stats[String(level)];
+    if (lvl) return lvl.atk || 0;
+  } catch {}
+  return 0;
+}
+
 // Optimization engine
 function optimizeLineup(
   roster: any[],
@@ -332,7 +342,8 @@ function optimizeLineup(
   elixirBudget: number,
   formation?: string,
   enemyFormation?: string,
-  enemyHeroIds?: number[]
+  enemyHeroIds?: number[],
+  huntingBoss?: string
 ) {
   const tierScore: Record<string, number> = {
     S: 10, A: 8, B: 6, C: 4, D: 2
@@ -361,6 +372,25 @@ function optimizeLineup(
         if (hero.class === "Support") score += 8;
         if (hero.name === "Royal Archer") score += 15;
         if (hero.name === "Nine-Tailed Fox") score += 12;
+
+        // Boss-specific scoring
+        if (huntingBoss === "Twin-Dragon") {
+          // Twin-Dragon: weakness Wind, resists Water & Fire
+          if (hero.attribute === "Wind") score += 20;
+          if (hero.attribute === "Water") score -= 15;
+          if (hero.attribute === "Fire") score -= 15;
+          // DPS classes get a bonus (maximize damage)
+          if (hero.class === "Marksman" || hero.class === "Assassin" || hero.class === "Mage") score += 10;
+        } else if (huntingBoss === "Evil Ivy") {
+          // Evil Ivy: weakness Fire, resists Wood
+          if (hero.attribute === "Fire") score += 20;
+          if (hero.attribute === "Wood") score -= 15;
+          // DPS classes get a bonus
+          if (hero.class === "Marksman" || hero.class === "Assassin" || hero.class === "Mage") score += 10;
+          // Evil Ivy reduces defense, so high ATK matters more
+          const heroAtk = getHeroAtk(hero.stats, entry.level);
+          if (heroAtk >= 400) score += 5;
+        }
         break;
       case "Infinite War":
         if (hero.class === "Support") score += 10;
