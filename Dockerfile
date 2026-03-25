@@ -22,5 +22,5 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-# Run schema push then start server
-CMD ["sh", "-c", "npx drizzle-kit push && node dist/index.cjs"]
+# Start server directly (tables are auto-created on startup)
+CMD ["node", "dist/index.cjs"]

@@ -14,6 +14,49 @@ const dbPath = process.env.DATABASE_PATH || "data.db";
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 
+// Create tables if they don't exist (replaces drizzle-kit push for production)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS heroes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    rarity TEXT NOT NULL,
+    position TEXT NOT NULL,
+    role TEXT NOT NULL,
+    attribute TEXT NOT NULL,
+    elixir INTEGER NOT NULL,
+    ability TEXT NOT NULL,
+    ability_desc TEXT NOT NULL,
+    tier TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visitor_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS rosters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hero_id INTEGER NOT NULL REFERENCES heroes(id),
+    merge_level INTEGER NOT NULL DEFAULT 1,
+    star_level INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER NOT NULL REFERENCES users(id)
+  );
+  CREATE TABLE IF NOT EXISTS lineups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    formation TEXT,
+    hero_selections TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id)
+  );
+`);
+
 export const db = drizzle(sqlite);
 
 export interface IStorage {
