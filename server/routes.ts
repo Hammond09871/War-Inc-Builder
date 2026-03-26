@@ -80,7 +80,11 @@ const heroSeedData: any[] = [
 
 function seedHeroes() {
   const count = storage.getHeroCount();
-  if (count === 0) {
+  if (count !== heroSeedData.length) {
+    if (count > 0) {
+      console.log(`Hero count mismatch (${count} vs ${heroSeedData.length}), reseeding...`);
+      storage.clearHeroes();
+    }
     console.log("Seeding hero database with", heroSeedData.length, "heroes...");
     for (const hero of heroSeedData) {
       storage.insertHero(hero);

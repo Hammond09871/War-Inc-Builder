@@ -94,6 +94,7 @@ export interface IStorage {
   getHeroesFiltered(filters: { rarity?: string; class?: string; placement?: string; attribute?: string }): Hero[];
   insertHero(hero: InsertHero): Hero;
   getHeroCount(): number;
+  clearHeroes(): void;
 
   // Users
   createUser(username: string, passwordHash: string): User;
@@ -155,6 +156,12 @@ export class DatabaseStorage implements IStorage {
   getHeroCount(): number {
     const result = db.select().from(heroes).all();
     return result.length;
+  }
+
+  clearHeroes(): void {
+    db.delete(heroes).run();
+    // Reset auto-increment
+    try { sqlite.exec("DELETE FROM sqlite_sequence WHERE name='heroes'"); } catch(e) {}
   }
 
   // Users
