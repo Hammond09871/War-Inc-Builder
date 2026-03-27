@@ -212,24 +212,24 @@ export function HeroDetailDialog({ hero }: { hero: Hero }) {
         <span className="text-lg font-bold text-primary">{hero.elixir} ⚡</span>
       </div>
 
-      {/* Ability */}
+      {/* Abilities */}
       <div className="rounded-md p-3 border border-primary/20" style={{ background: "rgba(212, 168, 67, 0.05)" }}>
-        <p className="text-xs font-semibold text-primary mb-1">{hero.ability}</p>
+        <p className="text-xs font-semibold text-primary mb-1">Main Ability</p>
+        <p className="text-[10px] font-medium text-primary/80 mb-0.5">{hero.ability}</p>
         <p className="text-xs text-muted-foreground leading-relaxed">{hero.abilityDesc}</p>
       </div>
 
-      {/* Level Upgrades */}
       {(hero.level6Upgrade || hero.level7Upgrade) && (
         <div className="space-y-2">
           {hero.level6Upgrade && (
             <div className="rounded-md p-2.5 border border-border/50" style={{ background: "#1E2233" }}>
-              <span className="text-[10px] text-primary font-semibold">Lv.6: </span>
+              <span className="text-[10px] text-primary font-semibold">2nd Ability: </span>
               <span className="text-[10px] text-muted-foreground">{hero.level6Upgrade}</span>
             </div>
           )}
           {hero.level7Upgrade && (
             <div className="rounded-md p-2.5 border border-border/50" style={{ background: "#1E2233" }}>
-              <span className="text-[10px] text-primary font-semibold">Lv.7: </span>
+              <span className="text-[10px] text-primary font-semibold">3rd Ability: </span>
               <span className="text-[10px] text-muted-foreground">{hero.level7Upgrade}</span>
             </div>
           )}
