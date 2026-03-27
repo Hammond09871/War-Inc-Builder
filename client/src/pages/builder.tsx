@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { PaywallDialog } from "@/components/PaywallDialog";
 import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
@@ -55,6 +57,8 @@ function makeEmptyGrid(): (PlacedHero | null)[][] {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 }
 
+const FREE_LINEUP_LIMIT = 3;
+
 export default function LineupBuilder() {
   const [mode, setMode] = useState("Arena");
   const [formation, setFormation] = useState("Dash");
@@ -65,7 +69,9 @@ export default function LineupBuilder() {
   const [lineupName, setLineupName] = useState("");
   const [formationInfoOpen, setFormationInfoOpen] = useState(false);
   const [elixirLimit, setElixirLimit] = useState(100);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data: roster, isLoading: rosterLoading } = useQuery<RosterWithHero[]>({
     queryKey: ["/api/roster"],
@@ -93,7 +99,12 @@ export default function LineupBuilder() {
       toast({ title: "Lineup saved!" });
     },
     onError: (e: Error) => {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      if (e.message.includes("Free tier limit")) {
+        setSaveDialogOpen(false);
+        setPaywallOpen(true);
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
     },
   });
 
@@ -249,7 +260,14 @@ export default function LineupBuilder() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-lg font-bold" data-testid="text-page-title">Lineup Builder</h1>
-            <p className="text-xs text-muted-foreground mt-1">Place heroes on the 7×7 battlefield</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Place heroes on the 7×7 battlefield
+              {user && !user.isPremium && !user.isAdmin ? (
+                <span className="ml-2">
+                  · Saves: <span className="font-semibold text-foreground" data-testid="text-save-count">{savedLineups?.length ?? 0}</span>/{FREE_LINEUP_LIMIT + (user.bonusSaves || 0)}
+                </span>
+              ) : null}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={clearGrid} data-testid="button-clear-grid">
@@ -677,6 +695,8 @@ export default function LineupBuilder() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PaywallDialog open={paywallOpen} onOpenChange={setPaywallOpen} trigger="save" />
     </AppLayout>
   );
 }

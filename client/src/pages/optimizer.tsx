@@ -9,10 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { PaywallDialog } from "@/components/PaywallDialog";
 import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
 import type { Hero, RosterWithHero } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
+
+const FREE_GENERATION_LIMIT = 10;
 
 export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
@@ -20,7 +24,9 @@ export default function Optimizer() {
   const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
   const [elixirBudget, setElixirBudget] = useState(100);
   const [result, setResult] = useState<any>(null);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const { toast } = useToast();
+  const { user, refreshUser } = useAuth();
 
   const { data: roster, isLoading: rosterLoading } = useQuery<RosterWithHero[]>({
     queryKey: ["/api/roster"],
@@ -44,9 +50,14 @@ export default function Optimizer() {
     },
     onSuccess: (data) => {
       setResult(data);
+      refreshUser();
     },
     onError: (e: Error) => {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      if (e.message.includes("Free tier limit")) {
+        setPaywallOpen(true);
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
     },
   });
 
@@ -62,11 +73,21 @@ export default function Optimizer() {
   return (
     <AppLayout>
       <div className="space-y-5">
-        <div>
-          <h1 className="text-lg font-bold" data-testid="text-page-title">Lineup Optimizer</h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Get AI-powered lineup recommendations based on your roster
-          </p>
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-lg font-bold" data-testid="text-page-title">Lineup Optimizer</h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              Get AI-powered lineup recommendations based on your roster
+            </p>
+          </div>
+          {user && !user.isPremium && !user.isAdmin ? (
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">
+                Generations: <span className="font-semibold text-foreground" data-testid="text-gen-count">{user.generationsUsed}</span>/{FREE_GENERATION_LIMIT + (user.bonusGenerations || 0)}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Free tier{user.bonusGenerations ? ` (+${user.bonusGenerations} bonus)` : ""}</p>
+            </div>
+          ) : null}
         </div>
 
         {/* Configuration */}
@@ -299,6 +320,8 @@ export default function Optimizer() {
           </div>
         )}
       </div>
+
+      <PaywallDialog open={paywallOpen} onOpenChange={setPaywallOpen} trigger="optimize" />
     </AppLayout>
   );
 }

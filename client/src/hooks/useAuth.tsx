@@ -2,7 +2,7 @@ import { createContext, useContext, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-type AuthUser = { id: number; username: string; isAdmin: number };
+type AuthUser = { id: number; username: string; isAdmin: number; isPremium: number; generationsUsed: number; bonusGenerations: number; bonusSaves: number };
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -10,6 +10,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -33,7 +34,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await apiRequest("POST", "/api/auth/login", { username, password });
     const result = await res.json();
     queryClient.setQueryData(["/api/auth/me"], result);
-    // Invalidate data queries so they refetch for the new user
     queryClient.invalidateQueries({ queryKey: ["/api/roster"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
   }, []);
@@ -53,8 +53,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
   }, []);
 
+  const refreshUser = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

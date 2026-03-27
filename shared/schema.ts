@@ -29,6 +29,10 @@ export const users = sqliteTable("users", {
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   isAdmin: integer("is_admin").notNull().default(0),
+  isPremium: integer("is_premium").notNull().default(0),
+  generationsUsed: integer("generations_used").notNull().default(0),
+  bonusGenerations: integer("bonus_generations").notNull().default(0),
+  bonusSaves: integer("bonus_saves").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

@@ -1,7 +1,6 @@
 import { Link, useLocation } from "wouter";
-import { Shield, Users, Swords, Brain, Home, Menu, X, Settings, LogOut, ShieldCheck } from "lucide-react";
+import { Shield, Users, Swords, Brain, Home, Menu, X, Settings, LogOut, ShieldCheck, Crown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { PerplexityAttribution } from "./PerplexityAttribution";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -100,6 +99,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="hidden md:flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   Commander: <span className="font-semibold" style={{ color: "#D4A843" }}>{user.username}</span>
+                  {user.isPremium ? (
+                    <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843", background: "rgba(212, 168, 67, 0.1)" }}>
+                      <Crown className="w-2.5 h-2.5 mr-0.5" />PRO
+                    </Badge>
+                  ) : null}
                   {user.isAdmin ? <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843" }}>ADMIN</Badge> : null}
                 </span>
                 <button
@@ -168,6 +172,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center justify-between px-3 py-2.5">
                   <span className="text-xs text-muted-foreground">
                     Commander: <span className="font-semibold" style={{ color: "#D4A843" }}>{user.username}</span>
+                    {user.isPremium ? (
+                      <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843", background: "rgba(212, 168, 67, 0.1)" }}>
+                        <Crown className="w-2.5 h-2.5 mr-0.5" />PRO
+                      </Badge>
+                    ) : null}
                     {user.isAdmin ? <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843" }}>ADMIN</Badge> : null}
                   </span>
                   <button
@@ -185,13 +194,31 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       </header>
 
+      {/* Ad Banner (hidden for premium users) */}
+      {user && !user.isPremium && !user.isAdmin ? (
+        <div className="w-full flex justify-center py-2" style={{ background: "#0D0F16" }}>
+          <div
+            className="flex items-center justify-center border border-border/30 rounded"
+            style={{ width: 320, height: 50, background: "#161924" }}
+            data-testid="ad-placeholder"
+          >
+            <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Ad Space</span>
+          </div>
+        </div>
+      ) : null}
+
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
         {children}
       </main>
 
       {/* Footer */}
-      <PerplexityAttribution />
+      <footer className="w-full border-t border-border/30 py-4 px-4" style={{ background: "#0D0F16" }}>
+        <div className="max-w-7xl mx-auto text-center space-y-1">
+          <p className="text-[11px] text-muted-foreground">&copy; 2026 War Inc Rising Lineup Builder</p>
+          <p className="text-[10px] text-muted-foreground/60">Not affiliated with or endorsed by War Inc Rising</p>
+        </div>
+      </footer>
     </div>
   );
 }

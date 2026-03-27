@@ -42,11 +42,26 @@ try {
   if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'is_admin')) {
     console.log("Adding is_admin column to users table...");
     sqlite.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
-    // Grant admin to existing hamncheese account
     sqlite.exec("UPDATE users SET is_admin = 1 WHERE username = 'hamncheese'");
   }
+  if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'is_premium')) {
+    console.log("Adding is_premium column to users table...");
+    sqlite.exec("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0");
+  }
+  if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'generations_used')) {
+    console.log("Adding generations_used column to users table...");
+    sqlite.exec("ALTER TABLE users ADD COLUMN generations_used INTEGER NOT NULL DEFAULT 0");
+  }
+  if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'bonus_generations')) {
+    console.log("Adding bonus_generations column to users table...");
+    sqlite.exec("ALTER TABLE users ADD COLUMN bonus_generations INTEGER NOT NULL DEFAULT 0");
+  }
+  if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'bonus_saves')) {
+    console.log("Adding bonus_saves column to users table...");
+    sqlite.exec("ALTER TABLE users ADD COLUMN bonus_saves INTEGER NOT NULL DEFAULT 0");
+  }
 } catch (e) {
-  console.log("is_admin migration check skipped");
+  console.log("user column migration check skipped");
 }
 
 // Create tables if they don't exist (replaces drizzle-kit push for production)
@@ -76,6 +91,10 @@ sqlite.exec(`
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    is_premium INTEGER NOT NULL DEFAULT 0,
+    generations_used INTEGER NOT NULL DEFAULT 0,
+    bonus_generations INTEGER NOT NULL DEFAULT 0,
+    bonus_saves INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -148,6 +167,13 @@ export interface IStorage {
   getChangelog(): Changelog[];
   addChangelog(title: string, description: string): Changelog;
   deleteChangelog(id: number): void;
+
+  // Premium
+  incrementGenerations(userId: number): number;
+  setPremium(userId: number, value: number): void;
+  resetGenerations(userId: number): void;
+  grantBonusGenerations(userId: number, amount: number): void;
+  grantBonusSaves(userId: number, amount: number): void;
 
   // Export/Import
   exportUserData(userId: number): { roster: RosterWithHero[]; lineups: Lineup[] };
@@ -286,6 +312,34 @@ export class DatabaseStorage implements IStorage {
 
   deleteChangelog(id: number): void {
     db.delete(changelog).where(eq(changelog.id, id)).run();
+  }
+
+  // Premium
+  incrementGenerations(userId: number): number {
+    const user = db.select().from(users).where(eq(users.id, userId)).get();
+    const newCount = (user?.generationsUsed ?? 0) + 1;
+    db.update(users).set({ generationsUsed: newCount }).where(eq(users.id, userId)).run();
+    return newCount;
+  }
+
+  setPremium(userId: number, value: number): void {
+    db.update(users).set({ isPremium: value }).where(eq(users.id, userId)).run();
+  }
+
+  resetGenerations(userId: number): void {
+    db.update(users).set({ generationsUsed: 0 }).where(eq(users.id, userId)).run();
+  }
+
+  grantBonusGenerations(userId: number, amount: number): void {
+    const user = db.select().from(users).where(eq(users.id, userId)).get();
+    const newCount = (user?.bonusGenerations ?? 0) + amount;
+    db.update(users).set({ bonusGenerations: newCount }).where(eq(users.id, userId)).run();
+  }
+
+  grantBonusSaves(userId: number, amount: number): void {
+    const user = db.select().from(users).where(eq(users.id, userId)).get();
+    const newCount = (user?.bonusSaves ?? 0) + amount;
+    db.update(users).set({ bonusSaves: newCount }).where(eq(users.id, userId)).run();
   }
 
   // Export/Import

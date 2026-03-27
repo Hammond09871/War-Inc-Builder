@@ -145,7 +145,7 @@ export async function registerRoutes(
       const user = storage.createUser(normalizedUsername, passwordHash, isAdmin);
       const visitorId = getVisitorId(req);
       storage.createSession(visitorId, user.id);
-      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
+      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin, isPremium: user.isPremium, generationsUsed: user.generationsUsed, bonusGenerations: user.bonusGenerations, bonusSaves: user.bonusSaves } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -167,7 +167,7 @@ export async function registerRoutes(
       }
       const visitorId = getVisitorId(req);
       storage.createSession(visitorId, user.id);
-      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
+      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin, isPremium: user.isPremium, generationsUsed: user.generationsUsed, bonusGenerations: user.bonusGenerations, bonusSaves: user.bonusSaves } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -184,7 +184,7 @@ export async function registerRoutes(
     if (!user) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
+    res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin, isPremium: user.isPremium, generationsUsed: user.generationsUsed, bonusGenerations: user.bonusGenerations, bonusSaves: user.bonusSaves } });
   });
 
   // --- Hero Routes (public) ---
@@ -266,6 +266,17 @@ export async function registerRoutes(
     try {
       const user = getUserFromRequest(req);
       if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+      // Free tier: 3 base saves + bonus from ads
+      const FREE_LINEUP_LIMIT = 3;
+      const effectiveSaveLimit = FREE_LINEUP_LIMIT + (user.bonusSaves || 0);
+      if (!user.isPremium && !user.isAdmin) {
+        const existing = storage.getLineups(user.id);
+        if (existing.length >= effectiveSaveLimit) {
+          return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited lineup saves.", lineupsUsed: existing.length, limit: effectiveSaveLimit });
+        }
+      }
+
       const parsed = insertLineupSchema.parse({ ...req.body, userId: user.id });
       const lineup = storage.saveLineup(parsed);
       res.json(lineup);
@@ -309,6 +320,13 @@ export async function registerRoutes(
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
 
+    // Free tier: 10 base generations + bonus from ads
+    const FREE_GENERATION_LIMIT = 10;
+    const effectiveGenLimit = FREE_GENERATION_LIMIT + (user.bonusGenerations || 0);
+    if (!user.isPremium && !user.isAdmin && user.generationsUsed >= effectiveGenLimit) {
+      return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited optimizations.", generationsUsed: user.generationsUsed, limit: effectiveGenLimit });
+    }
+
     const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
@@ -319,7 +337,42 @@ export async function registerRoutes(
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
     const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss);
+
+    // Increment generation counter for non-premium, non-admin users
+    if (!user.isPremium && !user.isAdmin) {
+      storage.incrementGenerations(user.id);
+    }
+
     res.json(result);
+  });
+
+  // --- Rewarded Ads ---
+
+  app.post("/api/reward-ad", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    const { type } = req.body;
+    if (type === "generation") {
+      storage.grantBonusGenerations(user.id, 3);
+    } else if (type === "save") {
+      storage.grantBonusSaves(user.id, 1);
+    } else {
+      return res.status(400).json({ message: "Invalid reward type. Must be 'generation' or 'save'." });
+    }
+    const updated = storage.getUserById(user.id);
+    res.json({ user: { id: updated!.id, username: updated!.username, isAdmin: updated!.isAdmin, isPremium: updated!.isPremium, generationsUsed: updated!.generationsUsed, bonusGenerations: updated!.bonusGenerations, bonusSaves: updated!.bonusSaves } });
+  });
+
+  // --- Premium/Upgrade ---
+
+  app.post("/api/upgrade", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    // In production, this would verify payment. For now, just toggle premium.
+    storage.setPremium(user.id, 1);
+    storage.resetGenerations(user.id);
+    const updated = storage.getUserById(user.id);
+    res.json({ user: { id: updated!.id, username: updated!.username, isAdmin: updated!.isAdmin, isPremium: updated!.isPremium, generationsUsed: updated!.generationsUsed, bonusGenerations: updated!.bonusGenerations, bonusSaves: updated!.bonusSaves } });
   });
 
   // --- Admin Routes ---
