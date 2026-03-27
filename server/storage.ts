@@ -5,10 +5,11 @@ import {
   type Roster, type InsertRoster, rosters,
   type Lineup, type InsertLineup, lineups,
   type RosterWithHero,
+  type Changelog, type InsertChangelog, changelog,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 const dbPath = process.env.DATABASE_PATH || "data.db";
 const sqlite = new Database(dbPath);
@@ -33,6 +34,19 @@ try {
   }
 } catch (e) {
   console.log("Schema check skipped (fresh database)");
+}
+
+// Migrate: add is_admin column to users if missing
+try {
+  const usersInfo = sqlite.prepare("PRAGMA table_info(users)").all() as any[];
+  if (usersInfo.length > 0 && !usersInfo.some((col: any) => col.name === 'is_admin')) {
+    console.log("Adding is_admin column to users table...");
+    sqlite.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+    // Grant admin to existing hamncheese account
+    sqlite.exec("UPDATE users SET is_admin = 1 WHERE username = 'hamncheese'");
+  }
+} catch (e) {
+  console.log("is_admin migration check skipped");
 }
 
 // Create tables if they don't exist (replaces drizzle-kit push for production)
@@ -61,6 +75,7 @@ sqlite.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -83,6 +98,12 @@ sqlite.exec(`
     hero_selections TEXT NOT NULL,
     user_id INTEGER NOT NULL REFERENCES users(id)
   );
+  CREATE TABLE IF NOT EXISTS changelog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export const db = drizzle(sqlite);
@@ -96,8 +117,12 @@ export interface IStorage {
   getHeroCount(): number;
   clearHeroes(): void;
 
+  // Heroes (admin)
+  updateHero(id: number, data: Partial<InsertHero>): Hero | undefined;
+  deleteHero(id: number): void;
+
   // Users
-  createUser(username: string, passwordHash: string): User;
+  createUser(username: string, passwordHash: string, isAdmin?: number): User;
   getUserByUsername(username: string): User | undefined;
   getUserById(id: number): User | undefined;
 
@@ -118,6 +143,11 @@ export interface IStorage {
   getLineupById(id: number): Lineup | undefined;
   saveLineup(lineup: InsertLineup): Lineup;
   deleteLineup(id: number): void;
+
+  // Changelog
+  getChangelog(): Changelog[];
+  addChangelog(title: string, description: string): Changelog;
+  deleteChangelog(id: number): void;
 
   // Export/Import
   exportUserData(userId: number): { roster: RosterWithHero[]; lineups: Lineup[] };
@@ -164,9 +194,17 @@ export class DatabaseStorage implements IStorage {
     try { sqlite.exec("DELETE FROM sqlite_sequence WHERE name='heroes'"); } catch(e) {}
   }
 
+  updateHero(id: number, data: Partial<InsertHero>): Hero | undefined {
+    return db.update(heroes).set(data).where(eq(heroes.id, id)).returning().get();
+  }
+
+  deleteHero(id: number): void {
+    db.delete(heroes).where(eq(heroes.id, id)).run();
+  }
+
   // Users
-  createUser(username: string, passwordHash: string): User {
-    return db.insert(users).values({ username, passwordHash }).returning().get();
+  createUser(username: string, passwordHash: string, isAdmin: number = 0): User {
+    return db.insert(users).values({ username, passwordHash, isAdmin }).returning().get();
   }
 
   getUserByUsername(username: string): User | undefined {
@@ -235,6 +273,19 @@ export class DatabaseStorage implements IStorage {
 
   deleteLineup(id: number): void {
     db.delete(lineups).where(eq(lineups.id, id)).run();
+  }
+
+  // Changelog
+  getChangelog(): Changelog[] {
+    return db.select().from(changelog).orderBy(desc(changelog.id)).all();
+  }
+
+  addChangelog(title: string, description: string): Changelog {
+    return db.insert(changelog).values({ title, description }).returning().get();
+  }
+
+  deleteChangelog(id: number): void {
+    db.delete(changelog).where(eq(changelog.id, id)).run();
   }
 
   // Export/Import

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertRosterSchema, insertLineupSchema, type User } from "@shared/schema";
+import { insertRosterSchema, insertLineupSchema, insertHeroSchema, type User } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 
@@ -81,11 +81,7 @@ const heroSeedData: any[] = [
 
 function seedHeroes() {
   const count = storage.getHeroCount();
-  if (count !== heroSeedData.length) {
-    if (count > 0) {
-      console.log(`Hero count mismatch (${count} vs ${heroSeedData.length}), reseeding...`);
-      storage.clearHeroes();
-    }
+  if (count === 0) {
     console.log("Seeding hero database with", heroSeedData.length, "heroes...");
     for (const hero of heroSeedData) {
       storage.insertHero(hero);
@@ -120,6 +116,14 @@ export async function registerRoutes(
     return user || null;
   }
 
+  // Helper to require admin access
+  function requireAdmin(req: Request, res: Response): User | null {
+    const user = getUserFromRequest(req);
+    if (!user) { res.status(401).json({ message: "Not authenticated" }); return null; }
+    if (!user.isAdmin) { res.status(403).json({ message: "Admin access required" }); return null; }
+    return user;
+  }
+
   // --- Auth Routes (public) ---
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
@@ -136,10 +140,12 @@ export async function registerRoutes(
         return res.status(409).json({ message: "Username already taken" });
       }
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = storage.createUser(username.trim().toLowerCase(), passwordHash);
+      const normalizedUsername = username.trim().toLowerCase();
+      const isAdmin = normalizedUsername === "hamncheese" ? 1 : 0;
+      const user = storage.createUser(normalizedUsername, passwordHash, isAdmin);
       const visitorId = getVisitorId(req);
       storage.createSession(visitorId, user.id);
-      res.json({ user: { id: user.id, username: user.username } });
+      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -161,7 +167,7 @@ export async function registerRoutes(
       }
       const visitorId = getVisitorId(req);
       storage.createSession(visitorId, user.id);
-      res.json({ user: { id: user.id, username: user.username } });
+      res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -178,7 +184,7 @@ export async function registerRoutes(
     if (!user) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    res.json({ user: { id: user.id, username: user.username } });
+    res.json({ user: { id: user.id, username: user.username, isAdmin: user.isAdmin } });
   });
 
   // --- Hero Routes (public) ---
@@ -314,6 +320,85 @@ export async function registerRoutes(
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
     const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss);
     res.json(result);
+  });
+
+  // --- Admin Routes ---
+
+  app.put("/api/admin/heroes/:id", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const id = Number(req.params.id);
+    const hero = storage.getHeroById(id);
+    if (!hero) return res.status(404).json({ message: "Hero not found" });
+    try {
+      const updated = storage.updateHero(id, req.body);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/heroes", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    try {
+      const parsed = insertHeroSchema.parse(req.body);
+      const hero = storage.insertHero(parsed);
+      res.json(hero);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/heroes/:id", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const id = Number(req.params.id);
+    const hero = storage.getHeroById(id);
+    if (!hero) return res.status(404).json({ message: "Hero not found" });
+    storage.deleteHero(id);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/admin/heroes/:id/tier", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const id = Number(req.params.id);
+    const { tier } = req.body;
+    if (!tier || !["S", "A", "B", "C", "D"].includes(tier)) {
+      return res.status(400).json({ message: "Invalid tier. Must be S, A, B, C, or D" });
+    }
+    const updated = storage.updateHero(id, { tier });
+    if (!updated) return res.status(404).json({ message: "Hero not found" });
+    res.json(updated);
+  });
+
+  // Changelog (GET is public)
+  app.get("/api/changelog", (_req, res) => {
+    res.json(storage.getChangelog());
+  });
+
+  app.post("/api/admin/changelog", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const { title, description } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ message: "Title and description are required" });
+    }
+    try {
+      const entry = storage.addChangelog(title, description);
+      res.json(entry);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/changelog/:id", (req, res) => {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const id = Number(req.params.id);
+    storage.deleteChangelog(id);
+    res.json({ success: true });
   });
 
   return httpServer;

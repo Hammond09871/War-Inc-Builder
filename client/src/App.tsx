@@ -13,6 +13,7 @@ import MyRoster from "@/pages/roster";
 import LineupBuilder from "@/pages/builder";
 import Optimizer from "@/pages/optimizer";
 import SettingsPage from "@/pages/settings";
+import AdminPage from "@/pages/admin";
 import AuthPage from "@/pages/auth";
 
 function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ function AppRouter() {
       <Route path="/builder" component={LineupBuilder} />
       <Route path="/optimizer" component={Optimizer} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/admin" component={AdminPage} />
       <Route path="/auth"><Redirect to="/" /></Route>
       <Route component={NotFound} />
     </Switch>

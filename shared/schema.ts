@@ -28,6 +28,7 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  isAdmin: integer("is_admin").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -54,6 +55,13 @@ export const lineups = sqliteTable("lineups", {
   userId: integer("user_id").notNull().references(() => users.id),
 });
 
+export const changelog = sqliteTable("changelog", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 // Insert schemas
 export const insertHeroSchema = createInsertSchema(heroes).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
@@ -62,6 +70,7 @@ export const insertRosterSchema = createInsertSchema(rosters).omit({ id: true })
   level: z.number().min(1).max(9),
 });
 export const insertLineupSchema = createInsertSchema(lineups).omit({ id: true });
+export const insertChangelogSchema = createInsertSchema(changelog).omit({ id: true, createdAt: true });
 
 // Types
 export type Hero = typeof heroes.$inferSelect;
@@ -74,6 +83,9 @@ export type Roster = typeof rosters.$inferSelect;
 export type InsertRoster = z.infer<typeof insertRosterSchema>;
 export type Lineup = typeof lineups.$inferSelect;
 export type InsertLineup = z.infer<typeof insertLineupSchema>;
+
+export type Changelog = typeof changelog.$inferSelect;
+export type InsertChangelog = z.infer<typeof insertChangelogSchema>;
 
 // Roster with hero data joined
 export type RosterWithHero = Roster & { hero: Hero };

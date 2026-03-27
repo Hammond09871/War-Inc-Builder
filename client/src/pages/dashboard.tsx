@@ -3,9 +3,9 @@ import { Link } from "wouter";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Shield, Swords, Brain, ChevronRight, Zap, Trophy } from "lucide-react";
+import { Users, Shield, Swords, Brain, ChevronRight, Zap, Trophy, ScrollText } from "lucide-react";
 import { getHeroPower } from "@/lib/constants";
-import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
+import type { Hero, RosterWithHero, Lineup, Changelog } from "@shared/schema";
 
 export default function Dashboard() {
   const { data: heroes, isLoading: heroesLoading } = useQuery<Hero[]>({
@@ -18,6 +18,10 @@ export default function Dashboard() {
 
   const { data: lineups, isLoading: lineupsLoading } = useQuery<Lineup[]>({
     queryKey: ["/api/lineups"],
+  });
+
+  const { data: changelog } = useQuery<Changelog[]>({
+    queryKey: ["/api/changelog"],
   });
 
   const isLoading = heroesLoading || rosterLoading || lineupsLoading;
@@ -147,6 +151,33 @@ export default function Dashboard() {
                     <p className="text-[10px] text-muted-foreground mt-1">
                       Level {entry.level}
                     </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Game Updates */}
+        {changelog && changelog.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <ScrollText className="w-4 h-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Recent Game Updates</h2>
+            </div>
+            <div className="space-y-2">
+              {changelog.slice(0, 5).map((entry) => (
+                <Card key={entry.id} className="border-border/50" style={{ background: "#161924" }}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold" style={{ color: "#D4A843" }}>{entry.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{entry.description}</p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {new Date(entry.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

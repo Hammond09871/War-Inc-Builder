@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
-import { Shield, Users, Swords, Brain, Home, Menu, X, Settings, LogOut } from "lucide-react";
+import { Shield, Users, Swords, Brain, Home, Menu, X, Settings, LogOut, ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { PerplexityAttribution } from "./PerplexityAttribution";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -76,6 +77,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+            {user?.isAdmin ? (
+              <Link
+                href="/admin"
+                data-testid="nav-admin"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors no-underline ${
+                  location === "/admin"
+                    ? "text-primary bg-primary/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Admin
+              </Link>
+            ) : null}
           </nav>
 
           {/* Desktop User Info + Mobile Menu Button */}
@@ -85,6 +100,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="hidden md:flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   Commander: <span className="font-semibold" style={{ color: "#D4A843" }}>{user.username}</span>
+                  {user.isAdmin ? <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843" }}>ADMIN</Badge> : null}
                 </span>
                 <button
                   onClick={logout}
@@ -131,12 +147,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+            {user?.isAdmin ? (
+              <Link
+                href="/admin"
+                data-testid="mobile-nav-admin"
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium no-underline ${
+                  location === "/admin"
+                    ? "text-primary bg-primary/10"
+                    : "text-muted-foreground"
+                }`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Admin
+              </Link>
+            ) : null}
             {/* Mobile user info + logout */}
             {user && (
               <div className="border-t border-border/50 mt-2 pt-2">
                 <div className="flex items-center justify-between px-3 py-2.5">
                   <span className="text-xs text-muted-foreground">
                     Commander: <span className="font-semibold" style={{ color: "#D4A843" }}>{user.username}</span>
+                    {user.isAdmin ? <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 h-4" style={{ borderColor: "#D4A843", color: "#D4A843" }}>ADMIN</Badge> : null}
                   </span>
                   <button
                     onClick={() => { logout(); setMobileMenuOpen(false); }}
