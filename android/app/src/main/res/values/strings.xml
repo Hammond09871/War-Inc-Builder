@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">WIR Lineup Builder</string>
+    <string name="title_activity_main">WIR Lineup Builder</string>
+    <string name="package_name">com.warincrising.lineupbuilder</string>
+    <string name="custom_url_scheme">com.warincrising.lineupbuilder</string>
+</resources>
