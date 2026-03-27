@@ -141,7 +141,7 @@ export async function registerRoutes(
       }
       const passwordHash = await bcrypt.hash(password, 10);
       const normalizedUsername = username.trim().toLowerCase();
-      const isAdmin = normalizedUsername === "hamncheese" ? 1 : 0;
+      const isAdmin = normalizedUsername === "masteraccount" ? 1 : 0;
       const user = storage.createUser(normalizedUsername, passwordHash, isAdmin);
       const visitorId = getVisitorId(req);
       storage.createSession(visitorId, user.id);
