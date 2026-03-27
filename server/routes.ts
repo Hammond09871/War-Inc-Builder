@@ -448,6 +448,17 @@ function optimizeLineup(
     score += entry.level * 10;
     score += (tierScore[hero.tier] || 2) * 2;
 
+    // Ability unlock bonuses — troops with higher levels have more abilities available
+    // 2nd ability (level6Upgrade) unlocks at level 6
+    // 3rd ability (level7Upgrade) unlocks at level 7+ (some at 9)
+    const has2ndAbility = hero.level6Upgrade && entry.level >= 6;
+    const has3rdAbility = hero.level7Upgrade && entry.level >= 7;
+    if (has2ndAbility) score += 15; // significant bonus for having 2nd ability
+    if (has3rdAbility) score += 20; // even bigger bonus for 3rd ability
+    // Penalty for low-level troops missing key abilities
+    if (hero.level6Upgrade && entry.level < 6) score -= 5;
+    if (hero.level7Upgrade && entry.level < 7) score -= 5;
+
     switch (mode) {
       case "Arena":
         if (formation === "Backstab" && hero.name === "Bomber") score += 20;
@@ -562,6 +573,12 @@ function optimizeLineup(
   const reasoning = selected.map(entry => {
     const reasons: string[] = [];
     if (entry.level >= 7) reasons.push("High level (" + entry.level + ")");
+    // Ability unlock reasoning
+    const has2nd = entry.hero.level6Upgrade && entry.level >= 6;
+    const has3rd = entry.hero.level7Upgrade && entry.level >= 7;
+    if (has2nd && has3rd) reasons.push("All abilities unlocked");
+    else if (has2nd) reasons.push("2nd ability unlocked");
+    else if (entry.hero.level6Upgrade && entry.level < 6) reasons.push("2nd ability locked (needs Lv.6)");
     if (entry.hero.tier === "S") reasons.push("S-tier hero");
     if (entry.hero.tier === "A") reasons.push("A-tier hero");
     if (mode === "Arena" && formation === "Backstab" && entry.hero.name === "Bomber") reasons.push("Bomber is essential for Backstab formation");
