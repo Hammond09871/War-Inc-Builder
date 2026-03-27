@@ -23,6 +23,8 @@ export default function HeroesDatabase() {
     queryKey: ["/api/heroes"],
   });
 
+  const rarityOrder: Record<string, number> = { Mythic: 0, Legendary: 1, Epic: 2, Rare: 3, Common: 4 };
+
   const filteredHeroes = heroes?.filter((hero) => {
     if (search && !hero.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterRarity !== "all" && hero.rarity !== filterRarity) return false;
@@ -31,7 +33,7 @@ export default function HeroesDatabase() {
     if (filterAttribute !== "all" && hero.attribute !== filterAttribute) return false;
     if (filterTier !== "all" && hero.tier !== filterTier) return false;
     return true;
-  }) || [];
+  }).sort((a, b) => (rarityOrder[a.rarity] ?? 5) - (rarityOrder[b.rarity] ?? 5) || a.name.localeCompare(b.name)) || [];
 
   return (
     <AppLayout>
