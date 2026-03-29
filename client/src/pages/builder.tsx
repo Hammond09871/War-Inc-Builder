@@ -16,7 +16,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 type PlacedHero = {
@@ -69,6 +69,7 @@ export default function LineupBuilder() {
   const [lineupName, setLineupName] = useState("");
   const [formationInfoOpen, setFormationInfoOpen] = useState(false);
   const [elixirLimit, setElixirLimit] = useState(100);
+  const [playstyle, setPlaystyle] = useState("Balanced");
   const [paywallOpen, setPaywallOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -125,6 +126,7 @@ export default function LineupBuilder() {
         formation: mode === "Arena" ? formation : undefined,
         huntingBoss: mode === "Hunting" ? huntingBoss : undefined,
         elixirBudget: elixirLimit,
+        playstyle: playstyle.toLowerCase(),
       });
       return res.json();
     },
@@ -358,6 +360,26 @@ export default function LineupBuilder() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Playstyle Selector */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-muted-foreground">Playstyle:</span>
+          <div className="flex gap-1.5">
+            {PLAYSTYLES.map((ps) => (
+              <Button
+                key={ps}
+                variant={playstyle === ps ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-7 px-3"
+                onClick={() => setPlaystyle(ps)}
+                data-testid={`button-playstyle-${ps.toLowerCase()}`}
+              >
+                {ps}
+              </Button>
+            ))}
+          </div>
+          <span className="text-[10px] text-muted-foreground">{PLAYSTYLE_INFO[playstyle]?.description}</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">

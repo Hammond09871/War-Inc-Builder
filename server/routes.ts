@@ -327,7 +327,7 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited optimizations.", generationsUsed: user.generationsUsed, limit: effectiveGenLimit });
     }
 
-    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss } = req.body;
+    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss, playstyle } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
@@ -336,7 +336,7 @@ export async function registerRoutes(
     }
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
-    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss);
+    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle);
 
     // Increment generation counter for non-premium, non-admin users
     if (!user.isPremium && !user.isAdmin) {
@@ -486,7 +486,8 @@ function optimizeLineup(
   formation?: string,
   enemyFormation?: string,
   enemyHeroIds?: number[],
-  huntingBoss?: string
+  huntingBoss?: string,
+  playstyle?: string
 ) {
   const tierScore: Record<string, number> = {
     S: 10, A: 8, B: 6, C: 4, D: 2
@@ -588,6 +589,28 @@ function optimizeLineup(
       if (enemyFormation === "Split" && formation === "Dash") score += 5;
     }
 
+    // Playstyle scoring
+    if (playstyle === "aggressive") {
+      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") score += 15;
+      if (hero.damageType === "Area") score += 10;
+      if (hero.atkSpeed === "High" || hero.atkSpeed === "Very High") score += 5;
+      if (hero.class === "Tank") score -= 10;
+      if (hero.class === "Support") score -= 5;
+      const heroAtk = getHeroAtk(hero.stats, entry.level);
+      score += Math.floor(heroAtk / 100);
+    } else if (playstyle === "defensive") {
+      if (hero.class === "Tank") score += 15;
+      if (hero.class === "Support") score += 10;
+      if (hero.defense === "High" || hero.defense === "Very High") score += 5;
+      if (hero.class === "Assassin") score -= 10;
+      if (hero.class === "Marksman") score -= 5;
+      try {
+        const stats = JSON.parse(hero.stats);
+        const lvl = stats[String(entry.level)];
+        if (lvl) score += Math.floor((lvl.hp || 0) / 100);
+      } catch {}
+    }
+
     return { ...entry, score, hero };
   });
 
@@ -596,16 +619,33 @@ function optimizeLineup(
   const selected: any[] = [];
   let totalElixir = 0;
 
-  const bestTank = scoredHeroes.find(h => h.hero.class === "Tank" && h.hero.placement === "Front");
-  if (bestTank && totalElixir + bestTank.hero.elixir <= elixirBudget) {
-    selected.push(bestTank);
-    totalElixir += bestTank.hero.elixir;
+  if (playstyle !== "aggressive") {
+    // Balanced and Defensive: ensure at least 1 tank
+    const bestTank = scoredHeroes.find(h => h.hero.class === "Tank" && h.hero.placement === "Front");
+    if (bestTank && totalElixir + bestTank.hero.elixir <= elixirBudget) {
+      selected.push(bestTank);
+      totalElixir += bestTank.hero.elixir;
+    }
   }
 
-  const bestSupport = scoredHeroes.find(h => h.hero.class === "Support" && !selected.includes(h));
-  if (bestSupport && totalElixir + bestSupport.hero.elixir <= elixirBudget) {
-    selected.push(bestSupport);
-    totalElixir += bestSupport.hero.elixir;
+  if (playstyle !== "aggressive") {
+    // Balanced and Defensive: ensure at least 1 support
+    const bestSupport = scoredHeroes.find(h => h.hero.class === "Support" && !selected.includes(h));
+    if (bestSupport && totalElixir + bestSupport.hero.elixir <= elixirBudget) {
+      selected.push(bestSupport);
+      totalElixir += bestSupport.hero.elixir;
+    }
+  }
+
+  if (playstyle === "defensive") {
+    // Defensive: try to add a second tank or support
+    const secondTankOrSupport = scoredHeroes.find(h =>
+      (h.hero.class === "Tank" || h.hero.class === "Support") && !selected.includes(h)
+    );
+    if (secondTankOrSupport && totalElixir + secondTankOrSupport.hero.elixir <= elixirBudget) {
+      selected.push(secondTankOrSupport);
+      totalElixir += secondTankOrSupport.hero.elixir;
+    }
   }
 
   for (const hero of scoredHeroes) {
@@ -649,6 +689,8 @@ function optimizeLineup(
     if (entry.hero.tier === "A") reasons.push("A-tier hero");
     if (mode === "Arena" && formation === "Backstab" && entry.hero.name === "Bomber") reasons.push("Bomber is essential for Backstab formation");
     if (mode === "Clan Hunt" && (entry.hero.class === "Marksman" || entry.hero.class === "Assassin")) reasons.push("DPS priority for single-target boss damage");
+    if (playstyle === "aggressive" && (entry.hero.class === "Marksman" || entry.hero.class === "Mage" || entry.hero.class === "Assassin")) reasons.push("Aggressive pick: high burst DPS");
+    if (playstyle === "defensive" && (entry.hero.class === "Tank" || entry.hero.class === "Support")) reasons.push("Defensive pick: strong survivability");
     if (reasons.length === 0) reasons.push("Best available " + entry.hero.class + " (score: " + entry.score.toFixed(0) + ")");
     return {
       heroId: entry.hero.id,

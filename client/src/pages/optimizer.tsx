@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
@@ -23,6 +23,7 @@ export default function Optimizer() {
   const [enemyFormation, setEnemyFormation] = useState<string>("none");
   const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
   const [elixirBudget, setElixirBudget] = useState(100);
+  const [playstyle, setPlaystyle] = useState("Balanced");
   const [result, setResult] = useState<any>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const { toast } = useToast();
@@ -38,7 +39,7 @@ export default function Optimizer() {
 
   const optimizeMutation = useMutation({
     mutationFn: async () => {
-      const body: any = { mode, elixirBudget };
+      const body: any = { mode, elixirBudget, playstyle: playstyle.toLowerCase() };
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
       }
@@ -185,6 +186,26 @@ export default function Optimizer() {
               <p className="text-[10px] text-muted-foreground">Max elixir cost for the optimized lineup</p>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Playstyle Selector */}
+        <div className="space-y-2">
+          <span className="text-xs text-muted-foreground">Playstyle:</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {PLAYSTYLES.map((ps) => (
+              <Button
+                key={ps}
+                variant={playstyle === ps ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-7 px-3"
+                onClick={() => setPlaystyle(ps)}
+                data-testid={`button-playstyle-${ps.toLowerCase()}`}
+              >
+                {ps}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">{PLAYSTYLE_INFO[playstyle]?.description}</p>
         </div>
 
         {/* Optimize Button */}

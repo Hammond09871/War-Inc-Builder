@@ -65,6 +65,13 @@ export const FORMATION_INFO: Record<string, { description: string; strongAgainst
   },
 };
 
+export const PLAYSTYLES = ["Balanced", "Aggressive", "Defensive"] as const;
+export const PLAYSTYLE_INFO: Record<string, { description: string }> = {
+  Balanced: { description: "Even mix of offense and defense. Good all-around team." },
+  Aggressive: { description: "Maximum damage output. Overwhelm enemies with firepower." },
+  Defensive: { description: "Survive and outlast. Tanks, healers, and control dominate." },
+};
+
 export const HUNTING_BOSSES = {
   "Twin-Dragon": {
     name: "Twin-Dragon",
