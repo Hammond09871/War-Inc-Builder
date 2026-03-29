@@ -15,6 +15,7 @@ import Optimizer from "@/pages/optimizer";
 import SettingsPage from "@/pages/settings";
 import AdminPage from "@/pages/admin";
 import AuthPage from "@/pages/auth";
+import SharedLineup from "@/pages/shared";
 
 function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -45,6 +46,7 @@ function AppRouter() {
   if (!user) {
     return (
       <Switch>
+        <Route path="/shared/:code" component={SharedLineup} />
         <Route path="/auth" component={AuthPage} />
         <Route><Redirect to="/auth" /></Route>
       </Switch>
@@ -60,6 +62,7 @@ function AppRouter() {
       <Route path="/optimizer" component={Optimizer} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/admin" component={AdminPage} />
+      <Route path="/shared/:code" component={SharedLineup} />
       <Route path="/auth"><Redirect to="/" /></Route>
       <Route component={NotFound} />
     </Switch>

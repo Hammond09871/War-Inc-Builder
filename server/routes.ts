@@ -124,6 +124,13 @@ export async function registerRoutes(
     return user;
   }
 
+  function generateShareCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = 'WIR-';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
   // --- Auth Routes (public) ---
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
@@ -277,9 +284,12 @@ export async function registerRoutes(
         }
       }
 
+      const shareCode = generateShareCode();
       const parsed = insertLineupSchema.parse({ ...req.body, userId: user.id });
       const lineup = storage.saveLineup(parsed);
-      res.json(lineup);
+      storage.updateLineupShareCode(lineup.id, shareCode);
+      const updated = storage.getLineupById(lineup.id);
+      res.json(updated);
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -291,6 +301,50 @@ export async function registerRoutes(
     const id = Number(req.params.id);
     storage.deleteLineup(id);
     res.json({ success: true });
+  });
+
+  // Public shared lineup route (no auth required)
+  app.get("/api/shared/:code", (req, res) => {
+    const code = req.params.code;
+    const lineup = storage.getLineupByShareCode(code);
+    if (!lineup) return res.status(404).json({ message: "Shared lineup not found" });
+    // Populate hero details from the grid
+    const allHeroes = storage.getAllHeroes();
+    const heroMap = new Map(allHeroes.map(h => [h.id, h]));
+    let heroDetails: any[] = [];
+    try {
+      const grid = JSON.parse(lineup.heroSelections);
+      for (const row of grid) {
+        for (const cell of row) {
+          if (cell && cell.heroId) {
+            const hero = heroMap.get(cell.heroId);
+            if (hero) {
+              heroDetails.push({ ...cell, heroData: { name: hero.name, rarity: hero.rarity, class: hero.class, attribute: hero.attribute, placement: hero.placement, elixir: hero.elixir, tier: hero.tier } });
+            }
+          }
+        }
+      }
+    } catch {}
+    res.json({ lineup: { id: lineup.id, name: lineup.name, mode: lineup.mode, formation: lineup.formation, heroSelections: lineup.heroSelections, shareCode: lineup.shareCode }, heroes: heroDetails });
+  });
+
+  // Import shared lineup (authenticated)
+  app.post("/api/lineups/import", (req, res) => {
+    try {
+      const user = getUserFromRequest(req);
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const { shareCode } = req.body;
+      if (!shareCode) return res.status(400).json({ message: "Share code is required" });
+      const source = storage.getLineupByShareCode(shareCode);
+      if (!source) return res.status(404).json({ message: "Shared lineup not found" });
+      const newCode = generateShareCode();
+      const copy = storage.saveLineup({ name: source.name + " (imported)", mode: source.mode, formation: source.formation, heroSelections: source.heroSelections, userId: user.id });
+      storage.updateLineupShareCode(copy.id, newCode);
+      const updated = storage.getLineupById(copy.id);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
   });
 
   app.get("/api/export", (req, res) => {
@@ -716,6 +770,96 @@ function optimizeLineup(
     return sum + getHeroPower(entry.hero.stats, entry.level);
   }, 0);
 
+  // Synergy engine
+  const synergies: { type: string; title: string; description: string; heroes: string[] }[] = [];
+  const selectedNames = new Set(selected.map(e => e.hero.name));
+  const selectedHeroes = selected.map(e => e.hero);
+
+  // 1. Attribute synergy: 3+ of same attribute
+  const attrCounts: Record<string, string[]> = {};
+  for (const h of selectedHeroes) {
+    if (!attrCounts[h.attribute]) attrCounts[h.attribute] = [];
+    attrCounts[h.attribute].push(h.name);
+  }
+  for (const [attr, names] of Object.entries(attrCounts)) {
+    if (names.length >= 3) {
+      synergies.push({
+        type: "attribute",
+        title: `${attr} Dominance (${names.length}x)`,
+        description: `Strong ${attr} presence boosts elemental synergy. Heroes of the same attribute benefit from shared resistance auras and elemental combos.`,
+        heroes: names,
+      });
+    }
+  }
+
+  // 2. Role balance analysis
+  const classCounts: Record<string, number> = {};
+  for (const h of selectedHeroes) {
+    classCounts[h.class] = (classCounts[h.class] || 0) + 1;
+  }
+  const tanks = classCounts["Tank"] || 0;
+  const supports = classCounts["Support"] || 0;
+  const dps = (classCounts["Marksman"] || 0) + (classCounts["Mage"] || 0) + (classCounts["Warrior"] || 0);
+  if (tanks >= 2 && supports >= 2) {
+    synergies.push({
+      type: "role_balance",
+      title: "Fortress Composition",
+      description: "Multiple tanks and supports create a durable front line with sustained healing. Your DPS can deal damage safely from behind.",
+      heroes: selectedHeroes.filter(h => h.class === "Tank" || h.class === "Support").map(h => h.name),
+    });
+  } else if (dps >= Math.ceil(selected.length * 0.6)) {
+    synergies.push({
+      type: "role_balance",
+      title: "Glass Cannon Composition",
+      description: "Heavy DPS lineup excels at burst damage but may lack survivability. Focus on eliminating threats quickly before your front line falls.",
+      heroes: selectedHeroes.filter(h => ["Marksman", "Mage", "Warrior"].includes(h.class)).map(h => h.name),
+    });
+  } else if (tanks >= 1 && supports >= 1 && dps >= 2) {
+    synergies.push({
+      type: "role_balance",
+      title: "Balanced Composition",
+      description: "Well-rounded team with front-line protection, healing support, and reliable damage output.",
+      heroes: selectedHeroes.map(h => h.name),
+    });
+  }
+
+  // 3. Specific hero combos
+  const combos: { names: string[]; title: string; description: string }[] = [
+    { names: ["Oracle", "Starlight Apostle"], title: "Divine Empowerment", description: "Oracle's stacking ATK buffs combined with Starlight Apostle's ATK bonus anthem create massive damage amplification for the entire team." },
+    { names: ["Radiant Warrior", "Goddess of War"], title: "Aegis & Sword", description: "Radiant Warrior's team-wide shields protect the lineup while Goddess of War's shield fortify and high defense anchors the front line." },
+    { names: ["Frost Queen", "Tide Lord"], title: "Frozen Tide", description: "Frost Queen's blizzard slow stacks with Tide Lord's vortex pull, locking enemies in place for devastating AoE combos." },
+    { names: ["Melody Weaver", "Ripple Wizard"], title: "Harmony Engine", description: "Melody Weaver's attack speed buff combined with Ripple Wizard's energy restoration keeps the entire team firing abilities non-stop." },
+    { names: ["Blazeking", "Nine Tailed Fox"], title: "Inferno Core", description: "Blazeking's Flame Aura attack buff amplifies Nine Tailed Fox's already massive single-target fire damage for devastating burst." },
+    { names: ["Woodland Guardian", "Grace Priest"], title: "Double Healers", description: "Two dedicated healers dramatically increase team survivability. Woodland Guardian covers AoE healing while Grace Priest provides targeted heals." },
+    { names: ["Barbarian Tyrant", "The Knight King"], title: "Twin Titans", description: "Two S-tier tanks create an impenetrable front line. Barbarian Tyrant's taunt draws fire while The Knight King deals high damage." },
+    { names: ["Bone Marksman", "Darkmoon Queen"], title: "Suppression Duo", description: "Bone Marksman's piercing shots combined with Darkmoon Queen's attack/skill lockdown prevents enemies from fighting back." },
+    { names: ["Ghost Assassin", "Night Scion"], title: "Backline Hunters", description: "Both warriors blink to enemy backline at battle start, instantly threatening squishy mages and marksmen." },
+    { names: ["Frost Queen", "Bone Warlock"], title: "Speed Cripple", description: "Frost Queen's blizzard slow stacks with Bone Warlock's attack speed reduction, rendering enemies nearly immobile." },
+    { names: ["Geomancer", "The Blade of Earth"], title: "Earth Alliance", description: "Geomancer's massive AoE damage pairs with Blade of Earth's damage reduction for a strong Earth-element core." },
+    { names: ["Wind Apostle", "Windlord"], title: "Wind Storm", description: "Wind Apostle pulls enemies into a cluster while Windlord's resistance reduction ensures Wind damage shreds through them." },
+  ];
+
+  for (const combo of combos) {
+    if (combo.names.every(n => selectedNames.has(n))) {
+      synergies.push({
+        type: "hero_combo",
+        title: combo.title,
+        description: combo.description,
+        heroes: combo.names,
+      });
+    }
+  }
+
+  // 4. Bomber special note
+  if (selectedNames.has("Bomber") && mode === "Arena") {
+    synergies.push({
+      type: "special",
+      title: "Bomber Disruption",
+      description: "Bomber's self-destruct deals massive AoE damage on death. Place in the front row to maximize enemy casualties. Essential for Backstab formation.",
+      heroes: ["Bomber"],
+    });
+  }
+
   return {
     lineup: selected.map(e => ({
       rosterId: e.id,
@@ -732,6 +876,7 @@ function optimizeLineup(
     reasoning,
     counterPickAdvice,
     placements,
+    synergies,
     mode,
   };
 }

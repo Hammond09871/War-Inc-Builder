@@ -56,6 +56,7 @@ export const lineups = sqliteTable("lineups", {
   mode: text("mode").notNull(),
   formation: text("formation"),
   heroSelections: text("hero_selections").notNull(),
+  shareCode: text("share_code").unique(),
   userId: integer("user_id").notNull().references(() => users.id),
 });
 

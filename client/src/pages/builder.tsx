@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 const ELIXIR_OPTIONS = Array.from({ length: 20 }, (_, i) => (i + 1) * 50);
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair } from "lucide-react";
+import { Save, Wand2, X, Zap, Shield, Swords, Heart, Wand2 as Wand2Icon, Info, Trash2, Lock, Crosshair, Copy, Download } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,6 +71,8 @@ export default function LineupBuilder() {
   const [elixirLimit, setElixirLimit] = useState(100);
   const [playstyle, setPlaystyle] = useState("Balanced");
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importCode, setImportCode] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -116,6 +118,22 @@ export default function LineupBuilder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
       toast({ title: "Lineup deleted" });
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await apiRequest("POST", "/api/lineups/import", { shareCode: code.trim().toUpperCase() });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
+      setImportDialogOpen(false);
+      setImportCode("");
+      toast({ title: "Lineup imported!", description: data.name });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Import failed", description: e.message, variant: "destructive" });
     },
   });
 
@@ -287,6 +305,11 @@ export default function LineupBuilder() {
               data-testid="button-save-lineup"
             >
               <Save className="w-3.5 h-3.5" /> Save
+            </Button>
+            <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setImportDialogOpen(true)}
+              data-testid="button-import-lineup"
+            >
+              <Download className="w-3.5 h-3.5" /> Import
             </Button>
           </div>
         </div>
@@ -460,21 +483,41 @@ export default function LineupBuilder() {
                           <p className="text-xs font-medium truncate">{lineup.name}</p>
                           <p className="text-[10px] text-muted-foreground">
                             {lineup.mode}{lineup.formation ? ` · ${lineup.formation}` : ""}
+                            {lineup.shareCode && (
+                              <span className="ml-1.5 text-primary/70 font-mono">{lineup.shareCode}</span>
+                            )}
                           </p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteLineupMutation.mutate(lineup.id);
-                        }}
-                        data-testid={`button-delete-lineup-${lineup.id}`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {lineup.shareCode && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(lineup.shareCode!);
+                              toast({ title: "Share code copied!", description: lineup.shareCode! });
+                            }}
+                            data-testid={`button-copy-code-${lineup.id}`}
+                          >
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteLineupMutation.mutate(lineup.id);
+                          }}
+                          data-testid={`button-delete-lineup-${lineup.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -714,6 +757,37 @@ export default function LineupBuilder() {
                 </div>
               );
             })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Lineup Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="sm:max-w-sm border-border/50" style={{ background: "#161924" }}>
+          <DialogHeader>
+            <DialogTitle>Import Shared Lineup</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Enter share code (e.g. WIR-ABC123)"
+              value={importCode}
+              onChange={(e) => setImportCode(e.target.value)}
+              className="h-9 text-sm font-mono"
+              style={{ background: "#1E2233" }}
+              data-testid="input-import-code"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Paste a share code from another player to import their lineup into your saved lineups.
+            </p>
+            <Button
+              className="w-full"
+              size="sm"
+              onClick={() => importMutation.mutate(importCode)}
+              disabled={importMutation.isPending || !importCode.trim()}
+              data-testid="button-confirm-import"
+            >
+              {importMutation.isPending ? "Importing..." : "Import Lineup"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -64,6 +64,17 @@ try {
   console.log("user column migration check skipped");
 }
 
+// Migrate: add share_code column to lineups if missing
+try {
+  const lineupsInfo = sqlite.prepare("PRAGMA table_info(lineups)").all() as any[];
+  if (lineupsInfo.length > 0 && !lineupsInfo.some((col: any) => col.name === 'share_code')) {
+    console.log("Adding share_code column to lineups table...");
+    sqlite.exec("ALTER TABLE lineups ADD COLUMN share_code TEXT UNIQUE");
+  }
+} catch (e) {
+  console.log("lineups migration check skipped");
+}
+
 // Create tables if they don't exist (replaces drizzle-kit push for production)
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS heroes (
@@ -115,6 +126,7 @@ sqlite.exec(`
     mode TEXT NOT NULL,
     formation TEXT,
     hero_selections TEXT NOT NULL,
+    share_code TEXT UNIQUE,
     user_id INTEGER NOT NULL REFERENCES users(id)
   );
   CREATE TABLE IF NOT EXISTS changelog (
@@ -160,7 +172,9 @@ export interface IStorage {
   // Lineups
   getLineups(userId: number): Lineup[];
   getLineupById(id: number): Lineup | undefined;
+  getLineupByShareCode(code: string): Lineup | undefined;
   saveLineup(lineup: InsertLineup): Lineup;
+  updateLineupShareCode(id: number, shareCode: string): void;
   deleteLineup(id: number): void;
 
   // Changelog
@@ -293,8 +307,16 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(lineups).where(eq(lineups.id, id)).get();
   }
 
+  getLineupByShareCode(code: string): Lineup | undefined {
+    return db.select().from(lineups).where(eq(lineups.shareCode, code)).get();
+  }
+
   saveLineup(lineup: InsertLineup): Lineup {
     return db.insert(lineups).values(lineup).returning().get();
+  }
+
+  updateLineupShareCode(id: number, shareCode: string): void {
+    db.update(lineups).set({ shareCode }).where(eq(lineups.id, id)).run();
   }
 
   deleteLineup(id: number): void {

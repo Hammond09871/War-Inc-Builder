@@ -338,6 +338,50 @@ export default function Optimizer() {
                 </div>
               </div>
             )}
+
+            {/* Synergies */}
+            {result.synergies && result.synergies.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Team Synergies</h3>
+                <div className="space-y-2">
+                  {result.synergies.map((syn: any, idx: number) => (
+                    <Card key={idx} className="border-border/50" style={{
+                      background: syn.type === "hero_combo" ? "rgba(212, 168, 67, 0.05)" :
+                                  syn.type === "attribute" ? "rgba(59, 142, 165, 0.05)" :
+                                  "#161924"
+                    }}>
+                      <CardContent className="p-3">
+                        <div className="flex items-start gap-2">
+                          <div className="w-6 h-6 rounded flex items-center justify-center shrink-0 mt-0.5" style={{
+                            background: syn.type === "hero_combo" ? "rgba(212, 168, 67, 0.15)" :
+                                        syn.type === "attribute" ? "rgba(59, 142, 165, 0.15)" :
+                                        syn.type === "role_balance" ? "rgba(46, 204, 113, 0.15)" :
+                                        "rgba(231, 76, 60, 0.15)"
+                          }}>
+                            <span className="text-[10px]">
+                              {syn.type === "hero_combo" ? "⚔" :
+                               syn.type === "attribute" ? "🔷" :
+                               syn.type === "role_balance" ? "⚖" : "💥"}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold" style={{
+                              color: syn.type === "hero_combo" ? "#D4A843" : "#e0e0e0"
+                            }}>{syn.title}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{syn.description}</p>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {syn.heroes.map((name: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px] h-4 px-1.5">{name}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
