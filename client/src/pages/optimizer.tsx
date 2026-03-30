@@ -284,7 +284,7 @@ export default function Optimizer() {
                           <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">{ROW_LABELS[rowIdx]}</span>
                           <div className="flex-1 grid grid-cols-7 gap-1">
                             {Array.from({ length: 7 }, (_, colIdx) => {
-                              const locked = rowIdx === 6 && (colIdx < 2 || colIdx > 4);
+                              const locked = rowIdx === 6; // Row 7 fully locked until level 999
                               const placed = result.gridPlacements.find((p: any) => p.row === rowIdx && p.col === colIdx);
                               const rarityColor = placed ? (RARITY_COLORS[placed.rarity] || "#95A5A6") : undefined;
                               return (

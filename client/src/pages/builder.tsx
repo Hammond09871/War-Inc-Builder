@@ -36,11 +36,9 @@ const ROWS = 7;
 const COLS = 7;
 const ROW_LABELS = ["Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7"];
 
-// Row 7 (index 6) only allows columns 2, 3, 4 (0-indexed)
+// Row 7 (index 6) is COMPLETELY locked — unlocks at Commander Level 999
 function isCellLocked(row: number, col: number): boolean {
-  if (row === 6) {
-    return col < 2 || col > 4;
-  }
+  if (row === 6) return true;
   return false;
 }
 

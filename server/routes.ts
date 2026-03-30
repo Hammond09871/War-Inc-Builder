@@ -651,7 +651,8 @@ function getPlaystyleMultiplier(hero: any, playstyle?: string): number {
 }
 
 function isCellLocked(row: number, col: number): boolean {
-  if (row === 6) return col < 2 || col > 4;
+  // Row 7 (index 6) is COMPLETELY locked — unlocks at Commander Level 999
+  if (row === 6) return true;
   return false;
 }
 
@@ -667,7 +668,7 @@ function optimizeLineup(
   huntingBoss?: string,
   playstyle?: string
 ) {
-  const MAX_GRID_CELLS = 45; // 7x7 = 49 minus 4 locked corners on row 7
+  const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
   const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
 
   // --- Phase 0: Score every roster entry ---
