@@ -58,6 +58,7 @@ export const lineups = sqliteTable("lineups", {
   heroSelections: text("hero_selections").notNull(),
   shareCode: text("share_code").unique(),
   userId: integer("user_id").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const changelog = sqliteTable("changelog", {
@@ -74,7 +75,7 @@ export const insertSessionSchema = createInsertSchema(sessions).omit({ id: true,
 export const insertRosterSchema = createInsertSchema(rosters).omit({ id: true }).extend({
   level: z.number().min(1).max(9),
 });
-export const insertLineupSchema = createInsertSchema(lineups).omit({ id: true });
+export const insertLineupSchema = createInsertSchema(lineups).omit({ id: true, createdAt: true });
 export const insertChangelogSchema = createInsertSchema(changelog).omit({ id: true, createdAt: true });
 
 // Types

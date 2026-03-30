@@ -71,6 +71,10 @@ try {
     console.log("Adding share_code column to lineups table...");
     sqlite.exec("ALTER TABLE lineups ADD COLUMN share_code TEXT UNIQUE");
   }
+  if (lineupsInfo.length > 0 && !lineupsInfo.some((col: any) => col.name === 'created_at')) {
+    console.log("Adding created_at column to lineups table...");
+    sqlite.exec("ALTER TABLE lineups ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  }
 } catch (e) {
   console.log("lineups migration check skipped");
 }
@@ -127,7 +131,8 @@ sqlite.exec(`
     formation TEXT,
     hero_selections TEXT NOT NULL,
     share_code TEXT UNIQUE,
-    user_id INTEGER NOT NULL REFERENCES users(id)
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS changelog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

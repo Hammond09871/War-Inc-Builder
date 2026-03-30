@@ -1,22 +1,23 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock } from "lucide-react";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
 import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO } from "@/lib/constants";
-import type { Hero, RosterWithHero } from "@shared/schema";
+import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
 
 const FREE_GENERATION_LIMIT = 10;
+const FREE_SAVE_LIMIT = 3;
 
 export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
@@ -26,8 +27,10 @@ export default function Optimizer() {
   const [playstyle, setPlaystyle] = useState("Balanced");
   const [result, setResult] = useState<any>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [paywallTrigger, setPaywallTrigger] = useState<string>("optimize");
   const { toast } = useToast();
   const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: roster, isLoading: rosterLoading } = useQuery<RosterWithHero[]>({
     queryKey: ["/api/roster"],
@@ -35,6 +38,10 @@ export default function Optimizer() {
 
   const { data: heroes } = useQuery<Hero[]>({
     queryKey: ["/api/heroes"],
+  });
+
+  const { data: lineups } = useQuery<Lineup[]>({
+    queryKey: ["/api/lineups"],
   });
 
   const optimizeMutation = useMutation({
@@ -55,12 +62,57 @@ export default function Optimizer() {
     },
     onError: (e: Error) => {
       if (e.message.includes("Free tier limit")) {
+        setPaywallTrigger("optimize");
         setPaywallOpen(true);
       } else {
         toast({ title: "Error", description: e.message, variant: "destructive" });
       }
     },
   });
+
+  const saveLineupMutation = useMutation({
+    mutationFn: async () => {
+      const heroSelections = JSON.stringify(result.gridPlacements || []);
+      const res = await apiRequest("POST", "/api/lineups", {
+        name: `${result.mode} ${result.formation || playstyle} Lineup`,
+        mode: result.mode,
+        formation: result.formation || null,
+        heroSelections,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Lineup saved!" });
+      queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
+      refreshUser();
+    },
+    onError: (e: Error) => {
+      if (e.message.includes("Free tier limit")) {
+        setPaywallTrigger("save");
+        setPaywallOpen(true);
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+    },
+  });
+
+  const deleteLineupMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/lineups/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
+      toast({ title: "Lineup deleted" });
+    },
+  });
+
+  const canSave = () => {
+    if (!user) return false;
+    if (user.isAdmin || user.isPremium) return true;
+    const existing = lineups?.length || 0;
+    const limit = FREE_SAVE_LIMIT + (user.bonusSaves || 0);
+    return existing < limit;
+  };
 
   const modeDescriptions: Record<string, string> = {
     Arena: "PvP battles where formation and counter-picks matter most",
@@ -70,6 +122,11 @@ export default function Optimizer() {
     "Clan War": "Competitive clan battles requiring balanced, versatile teams",
     "Clan Hunt": "Boss damage mode prioritizing single-target DPS",
   };
+
+  // Recent lineups — last 5, sorted by date descending
+  const recentLineups = lineups
+    ? [...lineups].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5)
+    : [];
 
   return (
     <AppLayout>
@@ -225,6 +282,54 @@ export default function Optimizer() {
           )}
         </div>
 
+        {/* Recent Lineups */}
+        {recentLineups.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3 h-3" /> Recent Lineups
+            </h3>
+            <div className="space-y-1.5">
+              {recentLineups.map((lineup) => {
+                let troopCount = 0;
+                let totalPower = 0;
+                try {
+                  const grid = JSON.parse(lineup.heroSelections);
+                  if (Array.isArray(grid)) {
+                    troopCount = grid.length;
+                    for (const cell of grid) {
+                      if (cell && cell.heroId) {
+                        const hero = heroes?.find(h => h.id === cell.heroId);
+                        if (hero) totalPower += getHeroPower(hero.stats, cell.level || 1);
+                      }
+                    }
+                  }
+                } catch {}
+                return (
+                  <div key={lineup.id} className="flex items-center gap-3 rounded-md px-3 py-2 border border-border/30" style={{ background: "#161924" }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{lineup.name}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {lineup.mode}{lineup.formation ? ` · ${lineup.formation}` : ""} · {troopCount} troops · {totalPower.toLocaleString()} power
+                      </p>
+                    </div>
+                    <span className="text-[9px] text-muted-foreground/60 shrink-0">
+                      {lineup.createdAt ? new Date(lineup.createdAt).toLocaleDateString() : ""}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => deleteLineupMutation.mutate(lineup.id)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Results */}
         {result && (
           <div className="space-y-4">
@@ -248,6 +353,23 @@ export default function Optimizer() {
                     </p>
                     <p className="text-[10px] text-muted-foreground">Elixir</p>
                   </div>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 h-8"
+                    onClick={() => {
+                      if (!canSave()) {
+                        setPaywallTrigger("save");
+                        setPaywallOpen(true);
+                      } else {
+                        saveLineupMutation.mutate();
+                      }
+                    }}
+                    disabled={saveLineupMutation.isPending}
+                    data-testid="button-save-lineup"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {saveLineupMutation.isPending ? "Saving..." : "Save Lineup"}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -273,7 +395,7 @@ export default function Optimizer() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[10px] text-primary/60 uppercase tracking-wider font-semibold">Recommended Positions</span>
                     <span className="text-xs font-medium text-primary">
-                      ⚡ {result.totalElixir}/{elixirBudget}
+                      {result.totalElixir}/{elixirBudget}
                     </span>
                   </div>
                   <div className="space-y-1.5">
@@ -304,7 +426,7 @@ export default function Optimizer() {
                                         {placed.heroName.split(" ").map((w: string) => w[0]).join("")}
                                       </span>
                                       <span className="text-[7px] text-muted-foreground truncate w-full text-center">
-                                        {placed.heroName.length > 7 ? placed.heroName.substring(0, 7) + "…" : placed.heroName}
+                                        {placed.heroName.length > 7 ? placed.heroName.substring(0, 7) + "..." : placed.heroName}
                                       </span>
                                       <span className="text-[7px] text-primary/70">L{placed.level}</span>
                                     </>
@@ -354,7 +476,7 @@ export default function Optimizer() {
                               )}
                             </div>
                             <p className="text-[10px] text-muted-foreground">
-                              {entry.placement} · {lineupEntry?.class || hero?.class} · {lineupEntry?.elixir || hero?.elixir}⚡
+                              {entry.placement} · {lineupEntry?.class || hero?.class} · {lineupEntry?.elixir || hero?.elixir}
                             </p>
                             <p className="text-[10px] text-primary/70 mt-1">{entry.reasons}</p>
                           </div>
@@ -422,9 +544,9 @@ export default function Optimizer() {
                                         "rgba(231, 76, 60, 0.15)"
                           }}>
                             <span className="text-[10px]">
-                              {syn.type === "hero_combo" ? "⚔" :
-                               syn.type === "attribute" ? "🔷" :
-                               syn.type === "role_balance" ? "⚖" : "💥"}
+                              {syn.type === "hero_combo" ? "W" :
+                               syn.type === "attribute" ? "A" :
+                               syn.type === "role_balance" ? "B" : "S"}
                             </span>
                           </div>
                           <div className="flex-1 min-w-0">
@@ -449,7 +571,7 @@ export default function Optimizer() {
         )}
       </div>
 
-      <PaywallDialog open={paywallOpen} onOpenChange={setPaywallOpen} trigger="optimize" />
+      <PaywallDialog open={paywallOpen} onOpenChange={setPaywallOpen} trigger={paywallTrigger} />
     </AppLayout>
   );
 }
