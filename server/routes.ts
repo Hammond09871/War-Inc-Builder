@@ -720,98 +720,94 @@ function optimizeLineup(
     };
   });
 
-  // === SELECTION ALGORITHM v3 ===
-  // Priority 1: Fill all 42 grid cells (every cell must have a troop)
-  // Priority 2: Stay as close to elixir budget as possible WITHOUT going over
-  // Priority 3: Match playstyle and game mode (already baked into finalScore)
-  // Priority 4: Use whatever troops are available (low-level commons are fine)
-  // Priority 5: Synergy and complementary placement
+  // === SELECTION ALGORITHM v4 ===
+  // The goal: Fill 42 cells, stay at or under elixir budget, maximize power.
+  // Think of it like packing a bag: fit as many good items as possible,
+  // but if a big item means you can't fill the bag, swap it for smaller ones.
 
   const selected: any[] = [];
   const selectedRosterIds = new Set<number>();
   let totalElixir = 0;
 
-  // Step 1: Check if entire roster fits within budget
-  const totalRosterElixir = scoredHeroes.reduce((sum, e) => sum + e.elixirCost, 0);
+  const cellsToFill = Math.min(MAX_GRID_CELLS, scoredHeroes.length); // can't fill more than roster size
 
-  if (scoredHeroes.length <= MAX_GRID_CELLS && totalRosterElixir <= elixirBudget) {
-    // Easy case: all roster troops fit — use everything
+  // If roster is small enough and cheap enough, just use everything
+  const totalRosterElixir = scoredHeroes.reduce((sum, e) => sum + e.elixirCost, 0);
+  if (scoredHeroes.length <= cellsToFill && totalRosterElixir <= elixirBudget) {
     for (const entry of scoredHeroes) {
       selected.push(entry);
       selectedRosterIds.add(entry.id);
       totalElixir += entry.elixirCost;
     }
   } else {
-    // Need to be selective — sort by finalScore descending for quality picks
+    // We have more troops than cells, or total cost exceeds budget.
+    // Strategy: Start with best troops, then swap expensive ones for cheap ones
+    // until we can fill the grid within budget.
+
     const byScore = [...scoredHeroes].sort((a, b) => b.finalScore - a.finalScore);
 
-    // Role guarantees first (balanced/defensive)
-    if (playstyle !== "aggressive") {
-      const bestTank = byScore.find(h => h.hero.class === "Tank");
-      if (bestTank && totalElixir + bestTank.elixirCost <= elixirBudget) {
-        selected.push(bestTank);
-        selectedRosterIds.add(bestTank.id);
-        totalElixir += bestTank.elixirCost;
+    // Step 1: Greedily pick the top troops by score, up to cellsToFill
+    const candidates = byScore.slice(0, cellsToFill);
+    let candidateElixir = candidates.reduce((s, e) => s + e.elixirCost, 0);
+
+    // Step 2: If over budget, swap expensive troops for cheaper ones
+    // Remove the weakest expensive troop and replace with a cheap troop not yet picked
+    const notPicked = byScore.slice(cellsToFill);
+    
+    while (candidateElixir > elixirBudget && candidates.length > 0 && notPicked.length > 0) {
+      // Find the most expensive troop among candidates with the lowest score (weakest expensive one)
+      let worstExpensiveIdx = -1;
+      let worstRatio = Infinity;
+      for (let i = 0; i < candidates.length; i++) {
+        const ratio = candidates[i].finalScore / candidates[i].elixirCost;
+        if (candidates[i].elixirCost >= 4 && ratio < worstRatio) {
+          worstRatio = ratio;
+          worstExpensiveIdx = i;
+        }
       }
-      const bestSupport = byScore.find(h => h.hero.class === "Support" && !selectedRosterIds.has(h.id));
-      if (bestSupport && totalElixir + bestSupport.elixirCost <= elixirBudget) {
-        selected.push(bestSupport);
-        selectedRosterIds.add(bestSupport.id);
-        totalElixir += bestSupport.elixirCost;
-      }
+      if (worstExpensiveIdx === -1) break; // no expensive troops to swap
+
+      // Find cheapest available replacement
+      const cheapIdx = notPicked.findIndex(e => e.elixirCost < candidates[worstExpensiveIdx].elixirCost);
+      if (cheapIdx === -1) break; // no cheaper replacement available
+
+      // Swap
+      const removed = candidates.splice(worstExpensiveIdx, 1)[0];
+      const added = notPicked.splice(cheapIdx, 1)[0];
+      candidates.push(added);
+      notPicked.push(removed);
+      candidateElixir = candidates.reduce((s, e) => s + e.elixirCost, 0);
     }
-    if (playstyle === "defensive") {
-      const extra = byScore.find(h => (h.hero.class === "Tank" || h.hero.class === "Support") && !selectedRosterIds.has(h.id));
-      if (extra && totalElixir + extra.elixirCost <= elixirBudget) {
-        selected.push(extra);
-        selectedRosterIds.add(extra.id);
-        totalElixir += extra.elixirCost;
+
+    // Step 3: If still over budget after swaps, remove troops from bottom until within budget
+    // Sort candidates by score so we remove weakest first
+    candidates.sort((a, b) => b.finalScore - a.finalScore);
+    while (candidateElixir > elixirBudget && candidates.length > 0) {
+      const removed = candidates.pop()!;
+      candidateElixir -= removed.elixirCost;
+    }
+
+    // Step 4: If grid has room left after fitting budget, add more cheap troops
+    if (candidates.length < cellsToFill) {
+      const usedIds = new Set(candidates.map(c => c.id));
+      const extras = byScore
+        .filter(e => !usedIds.has(e.id))
+        .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
+      for (const entry of extras) {
+        if (candidates.length >= cellsToFill) break;
+        if (candidateElixir + entry.elixirCost > elixirBudget) continue;
+        candidates.push(entry);
+        candidateElixir += entry.elixirCost;
       }
     }
 
-    // First pass: add strongest troops that fit in budget
-    for (const entry of byScore) {
-      if (selected.length >= MAX_GRID_CELLS) break;
-      if (selectedRosterIds.has(entry.id)) continue;
-      if (totalElixir + entry.elixirCost > elixirBudget) continue;
+    // Finalize
+    for (const entry of candidates) {
       selected.push(entry);
       selectedRosterIds.add(entry.id);
       totalElixir += entry.elixirCost;
     }
-
-    // Second pass: grid still has empty cells — find cheapest troops that fit remaining budget
-    if (selected.length < MAX_GRID_CELLS) {
-      const remaining = scoredHeroes
-        .filter(e => !selectedRosterIds.has(e.id))
-        .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
-      for (const entry of remaining) {
-        if (selected.length >= MAX_GRID_CELLS) break;
-        if (totalElixir + entry.elixirCost <= elixirBudget) {
-          selected.push(entry);
-          selectedRosterIds.add(entry.id);
-          totalElixir += entry.elixirCost;
-        }
-      }
-    }
-
-    // Third pass: FILL THE GRID — if cells are still empty, add troops even if over budget
-    // Filling the grid is MORE important than staying under budget
-    // The budget is a guideline, not a hard wall — an extra 2-4 elixir is worth having a full board
-    if (selected.length < MAX_GRID_CELLS) {
-      const stillAvailable = scoredHeroes
-        .filter(e => !selectedRosterIds.has(e.id))
-        .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
-      for (const entry of stillAvailable) {
-        if (selected.length >= MAX_GRID_CELLS) break;
-        selected.push(entry);
-        selectedRosterIds.add(entry.id);
-        totalElixir += entry.elixirCost;
-      }
-    }
   }
-
-  // Note: totalElixir may slightly exceed budget if needed to fill the grid
-  // This is intentional — a full grid beats staying under budget
 
   // --- Formation suggestion ---
   let suggestedFormation = formation;
