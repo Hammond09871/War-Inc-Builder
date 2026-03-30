@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair } from "lucide-react";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -265,15 +265,77 @@ export default function Optimizer() {
               </Card>
             )}
 
+            {/* Visual 7x7 Grid */}
+            {result.gridPlacements && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Battlefield Layout</h3>
+                <div className="battlefield-grid rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] text-primary/60 uppercase tracking-wider font-semibold">Recommended Positions</span>
+                    <span className="text-xs font-medium text-primary">
+                      ⚡ {result.totalElixir}/{elixirBudget}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {Array.from({ length: 7 }, (_, rowIdx) => {
+                      const ROW_LABELS = ["Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7"];
+                      return (
+                        <div key={rowIdx} className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">{ROW_LABELS[rowIdx]}</span>
+                          <div className="flex-1 grid grid-cols-7 gap-1">
+                            {Array.from({ length: 7 }, (_, colIdx) => {
+                              const locked = rowIdx === 6 && (colIdx < 2 || colIdx > 4);
+                              const placed = result.gridPlacements.find((p: any) => p.row === rowIdx && p.col === colIdx);
+                              const rarityColor = placed ? (RARITY_COLORS[placed.rarity] || "#95A5A6") : undefined;
+                              return (
+                                <div
+                                  key={colIdx}
+                                  className={`grid-cell aspect-square rounded-md flex flex-col items-center justify-center p-0.5 min-h-[44px] ${
+                                    placed ? "occupied" : ""
+                                  } ${locked ? "opacity-30" : ""}`}
+                                  style={placed ? { borderColor: `${rarityColor}40` } : undefined}
+                                >
+                                  {locked ? (
+                                    <Lock className="w-3 h-3 text-muted-foreground/30" />
+                                  ) : placed ? (
+                                    <>
+                                      <span className="text-[8px] font-semibold truncate w-full text-center leading-tight"
+                                        style={{ color: rarityColor }}>
+                                        {placed.heroName.split(" ").map((w: string) => w[0]).join("")}
+                                      </span>
+                                      <span className="text-[7px] text-muted-foreground truncate w-full text-center">
+                                        {placed.heroName.length > 7 ? placed.heroName.substring(0, 7) + "…" : placed.heroName}
+                                      </span>
+                                      <span className="text-[7px] text-primary/70">L{placed.level}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-[10px] text-muted-foreground/20">·</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/20">
+                    <Lock className="w-3 h-3 text-muted-foreground/50" />
+                    <span className="text-[9px] text-muted-foreground/50">Row 7 unlocks at Commander Level 999 (only columns 3-5 available)</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Hero List */}
             <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selected Heroes</h3>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selected Heroes ({result.lineup?.length})</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {result.reasoning?.map((entry: any, idx: number) => {
                   const hero = heroes?.find(h => h.id === entry.heroId);
-                  const ClassIcon = classIcons[hero?.class || "Warrior"] || Swords;
-                  const rarityColor = RARITY_COLORS[hero?.rarity || "Common"];
                   const lineupEntry = result.lineup?.find((l: any) => l.heroId === entry.heroId);
+                  const rarityColor = RARITY_COLORS[lineupEntry?.rarity || hero?.rarity || "Common"];
+                  const ClassIcon = classIcons[lineupEntry?.class || hero?.class || "Warrior"] || Swords;
                   return (
                     <Card key={idx} className="border-border/50" style={{ background: "#161924" }}>
                       <CardContent className="p-3">
@@ -292,7 +354,7 @@ export default function Optimizer() {
                               )}
                             </div>
                             <p className="text-[10px] text-muted-foreground">
-                              {hero?.placement} · {hero?.class} · {hero?.elixir}⚡
+                              {entry.placement} · {lineupEntry?.class || hero?.class} · {lineupEntry?.elixir || hero?.elixir}⚡
                             </p>
                             <p className="text-[10px] text-primary/70 mt-1">{entry.reasons}</p>
                           </div>
@@ -318,7 +380,7 @@ export default function Optimizer() {
                     return (
                       <Card key={pos} className="border-border/50" style={{ background: "#161924" }}>
                         <CardContent className="p-3">
-                          <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{pos} Row</h4>
+                          <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{pos} Row ({posHeroes.length})</h4>
                           {posHeroes.length === 0 ? (
                             <p className="text-[10px] text-muted-foreground/50">No heroes</p>
                           ) : (
@@ -327,6 +389,7 @@ export default function Optimizer() {
                                 <div key={i} className="flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: RARITY_COLORS[h.hero?.rarity || "Common"] }} />
                                   <span className="text-[10px] truncate">{h.hero?.name}</span>
+                                  <span className="text-[9px] text-muted-foreground ml-auto">L{h.level}</span>
                                 </div>
                               ))}
                             </div>

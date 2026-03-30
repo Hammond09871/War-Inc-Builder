@@ -671,13 +671,14 @@ function optimizeLineup(
 
     // Playstyle scoring
     if (playstyle === "aggressive") {
-      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") score += 15;
+      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") score += 20;
+      if (hero.class === "Warrior") score += 10;
       if (hero.damageType === "Area") score += 10;
       if (hero.atkSpeed === "High" || hero.atkSpeed === "Very High") score += 5;
-      if (hero.class === "Tank") score -= 10;
-      if (hero.class === "Support") score -= 5;
+      if (hero.class === "Tank") score -= 25;
+      if (hero.class === "Support") score -= 15;
       const heroAtk = getHeroAtk(hero.stats, entry.level);
-      score += Math.floor(heroAtk / 100);
+      score += Math.floor(heroAtk / 50);
     } else if (playstyle === "defensive") {
       if (hero.class === "Tank") score += 15;
       if (hero.class === "Support") score += 10;
@@ -697,43 +698,60 @@ function optimizeLineup(
   scoredHeroes.sort((a, b) => b.score - a.score);
 
   const selected: any[] = [];
+  const selectedRosterIds = new Set<number>();
   let totalElixir = 0;
+  const MAX_TROOPS = 18; // reasonable max for 7x7 grid
 
-  if (playstyle !== "aggressive") {
-    // Balanced and Defensive: ensure at least 1 tank
-    const bestTank = scoredHeroes.find(h => h.hero.class === "Tank" && h.hero.placement === "Front");
-    if (bestTank && totalElixir + bestTank.hero.elixir <= elixirBudget) {
-      selected.push(bestTank);
-      totalElixir += bestTank.hero.elixir;
-    }
+  // Helper: normalize placement to Front/Mid/Back
+  function normalizePlacement(p: string): string {
+    if (p.startsWith("Front") || p === "Front") return "Front";
+    if (p.startsWith("Mid") || p === "Mid") return "Mid";
+    if (p.startsWith("Back") || p === "Back") return "Back";
+    return "Mid";
   }
 
-  if (playstyle !== "aggressive") {
-    // Balanced and Defensive: ensure at least 1 support
-    const bestSupport = scoredHeroes.find(h => h.hero.class === "Support" && !selected.includes(h));
-    if (bestSupport && totalElixir + bestSupport.hero.elixir <= elixirBudget) {
-      selected.push(bestSupport);
-      totalElixir += bestSupport.hero.elixir;
-    }
+  // Helper to add to selection
+  function tryAdd(entry: any): boolean {
+    if (selectedRosterIds.has(entry.id)) return false;
+    if (totalElixir + entry.hero.elixir > elixirBudget) return false;
+    if (selected.length >= MAX_TROOPS) return false;
+    selected.push(entry);
+    selectedRosterIds.add(entry.id);
+    totalElixir += entry.hero.elixir;
+    return true;
   }
 
+  // Phase 1: Role guarantees (unless aggressive)
+  if (playstyle !== "aggressive") {
+    const bestTank = scoredHeroes.find(h => h.hero.class === "Tank");
+    if (bestTank) tryAdd(bestTank);
+    const bestSupport = scoredHeroes.find(h => h.hero.class === "Support" && !selectedRosterIds.has(h.id));
+    if (bestSupport) tryAdd(bestSupport);
+  }
   if (playstyle === "defensive") {
-    // Defensive: try to add a second tank or support
-    const secondTankOrSupport = scoredHeroes.find(h =>
-      (h.hero.class === "Tank" || h.hero.class === "Support") && !selected.includes(h)
-    );
-    if (secondTankOrSupport && totalElixir + secondTankOrSupport.hero.elixir <= elixirBudget) {
-      selected.push(secondTankOrSupport);
-      totalElixir += secondTankOrSupport.hero.elixir;
-    }
+    const extra = scoredHeroes.find(h => (h.hero.class === "Tank" || h.hero.class === "Support") && !selectedRosterIds.has(h.id));
+    if (extra) tryAdd(extra);
   }
 
+  // Phase 2: Fill by score — keep adding until budget is as full as possible
   for (const hero of scoredHeroes) {
-    if (selected.length >= 21) break; // 7x3 usable slots
-    if (selected.includes(hero)) continue;
+    if (selected.length >= MAX_TROOPS) break;
+    if (selectedRosterIds.has(hero.id)) continue;
     if (totalElixir + hero.hero.elixir > elixirBudget) continue;
-    selected.push(hero);
-    totalElixir += hero.hero.elixir;
+    tryAdd(hero);
+  }
+
+  // Phase 3: Second pass — try to fill remaining budget with cheaper troops we skipped
+  const remaining = elixirBudget - totalElixir;
+  if (remaining > 0 && selected.length < MAX_TROOPS) {
+    const cheapCandidates = scoredHeroes
+      .filter(h => !selectedRosterIds.has(h.id) && h.hero.elixir <= remaining)
+      .sort((a, b) => b.score - a.score);
+    for (const hero of cheapCandidates) {
+      if (selected.length >= MAX_TROOPS) break;
+      if (totalElixir + hero.hero.elixir > elixirBudget) continue;
+      tryAdd(hero);
+    }
   }
 
   let suggestedFormation = formation;
@@ -745,10 +763,63 @@ function optimizeLineup(
     else suggestedFormation = "Dash";
   }
 
-  const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
+  // Assign grid positions — center-outward column fill
+  const GRID_ROWS = 7;
+  const GRID_COLS = 7;
+  const colOrder = [3, 4, 2, 5, 1, 6, 0]; // center outward (0-indexed)
+
+  // Row ranges per placement
+  const rowRanges: Record<string, number[]> = {
+    Front: [0, 1],
+    Mid: [2, 3, 4],
+    Back: [5, 6],
+  };
+
+  // Row 7 (index 6) only allows cols 2,3,4
+  function isCellLocked(row: number, col: number): boolean {
+    if (row === 6) return col < 2 || col > 4;
+    return false;
+  }
+
+  const gridOccupied: boolean[][] = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(false));
+  const gridPlacements: { row: number; col: number; heroName: string; heroId: number; rosterId: number; level: number; rarity: string; heroClass: string; elixir: number }[] = [];
+
+  // Group selected by normalized placement
+  const byPlacement: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
   for (const entry of selected) {
-    const pos = entry.hero.placement;
-    if (placements[pos]) {
+    const pos = normalizePlacement(entry.hero.placement);
+    byPlacement[pos].push(entry);
+  }
+
+  const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
+
+  for (const pos of ["Front", "Mid", "Back"] as const) {
+    const rows = rowRanges[pos];
+    const entries = byPlacement[pos];
+    let placed = 0;
+    for (const entry of entries) {
+      let didPlace = false;
+      for (const col of colOrder) {
+        for (const row of rows) {
+          if (isCellLocked(row, col)) continue;
+          if (gridOccupied[row][col]) continue;
+          gridOccupied[row][col] = true;
+          gridPlacements.push({
+            row, col,
+            heroName: entry.hero.name,
+            heroId: entry.hero.id,
+            rosterId: entry.id,
+            level: entry.level,
+            rarity: entry.hero.rarity,
+            heroClass: entry.hero.class,
+            elixir: entry.hero.elixir,
+          });
+          didPlace = true;
+          placed++;
+          break;
+        }
+        if (didPlace) break;
+      }
       placements[pos].push(entry);
     }
   }
@@ -801,6 +872,13 @@ function optimizeLineup(
   const selectedNames = new Set(selected.map(e => e.hero.name));
   const selectedHeroes = selected.map(e => e.hero);
 
+  // Helper: deduplicate hero names, showing "Name x2" for duplicates
+  function dedupeNames(names: string[]): string[] {
+    const counts: Record<string, number> = {};
+    for (const n of names) counts[n] = (counts[n] || 0) + 1;
+    return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
+  }
+
   // 1. Attribute synergy: 3+ of same attribute
   const attrCounts: Record<string, string[]> = {};
   for (const h of selectedHeroes) {
@@ -813,7 +891,7 @@ function optimizeLineup(
         type: "attribute",
         title: `${attr} Dominance (${names.length}x)`,
         description: `Strong ${attr} presence boosts elemental synergy. Heroes of the same attribute benefit from shared resistance auras and elemental combos.`,
-        heroes: names,
+        heroes: dedupeNames(names),
       });
     }
   }
@@ -831,21 +909,21 @@ function optimizeLineup(
       type: "role_balance",
       title: "Fortress Composition",
       description: "Multiple tanks and supports create a durable front line with sustained healing. Your DPS can deal damage safely from behind.",
-      heroes: selectedHeroes.filter(h => h.class === "Tank" || h.class === "Support").map(h => h.name),
+      heroes: dedupeNames(selectedHeroes.filter(h => h.class === "Tank" || h.class === "Support").map(h => h.name)),
     });
   } else if (dps >= Math.ceil(selected.length * 0.6)) {
     synergies.push({
       type: "role_balance",
       title: "Glass Cannon Composition",
       description: "Heavy DPS lineup excels at burst damage but may lack survivability. Focus on eliminating threats quickly before your front line falls.",
-      heroes: selectedHeroes.filter(h => ["Marksman", "Mage", "Warrior"].includes(h.class)).map(h => h.name),
+      heroes: dedupeNames(selectedHeroes.filter(h => ["Marksman", "Mage", "Warrior"].includes(h.class)).map(h => h.name)),
     });
   } else if (tanks >= 1 && supports >= 1 && dps >= 2) {
     synergies.push({
       type: "role_balance",
       title: "Balanced Composition",
       description: "Well-rounded team with front-line protection, healing support, and reliable damage output.",
-      heroes: selectedHeroes.map(h => h.name),
+      heroes: dedupeNames(selectedHeroes.map(h => h.name)),
     });
   }
 
@@ -895,6 +973,7 @@ function optimizeLineup(
       placement: e.hero.placement,
       class: e.hero.class,
       elixir: e.hero.elixir,
+      rarity: e.hero.rarity,
     })),
     formation: suggestedFormation,
     totalElixir,
@@ -902,6 +981,7 @@ function optimizeLineup(
     reasoning,
     counterPickAdvice,
     placements,
+    gridPlacements,
     synergies,
     mode,
   };
