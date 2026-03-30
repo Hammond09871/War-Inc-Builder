@@ -581,22 +581,23 @@ function dedupeNames(names: string[]): string[] {
   return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
 }
 
+
 function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string, enemyFormation?: string): number {
   let mult = 1.0;
-  switch (mode) {
+  
+  switch(mode) {
     case "Arena": {
-      // SS-tier Arena troops get massive boost
+      // SS-tier Arena troops
       const ssTier = ["Frost Queen", "Radiant Warrior", "Mist Archer"];
       const sTierArena = ["Tide Lord", "Blazeking", "Darkmoon Queen", "Goddess of War",
         "Barbarian Tyrant", "Ursa Champion", "Elven Archer", "Oracle", "Bomber"];
-
       if (ssTier.includes(hero.name)) mult *= 2.0;
       else if (sTierArena.includes(hero.name)) mult *= 1.6;
-
-      // Area damage is critical in Arena — single target underperforms
+      
+      // Area damage wins in Arena
       if (hero.damageType === "Area") mult *= 1.4;
       if (hero.damageType === "Single" && hero.class !== "Tank") mult *= 0.7;
-
+      
       // Formation-specific
       if (formation === "Backstab") {
         if (hero.name === "Bomber") mult *= 2.5;
@@ -617,57 +618,169 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
         if (hero.name === "Frost Queen") mult *= 1.5;
         if (hero.class === "Tank") mult *= 1.3;
       }
-
-      // Counter-pick bonuses when enemy formation is known
+      // Counter-picks
       if (enemyFormation === "Dash") {
         if (hero.name === "Bomber" || hero.name === "Frost Queen") mult *= 1.5;
       }
       if (enemyFormation === "Backstab") {
         if (hero.class === "Tank") mult *= 1.3;
-        if (hero.name === "Paladin") mult *= 2.0;
+        if (hero.name === "Paladin") mult *= 2.0; // back row anti-backstab
+      }
+      if (enemyFormation === "Split") {
+        if (hero.damageType === "Area") mult *= 1.3; // AoE punishes split armies
       }
       break;
     }
-    case "Hunting":
-      if (hero.class === "Marksman" || hero.class === "Assassin") mult *= 1.35;
-      if (hero.class === "Mage") mult *= 1.2;
-      if (hero.class === "Support") mult *= 1.25;
-      if (hero.name === "Royal Archer") mult *= 1.4;
-      if (hero.name === "Nine-Tailed Fox") mult *= 1.3;
+    
+    case "Adventure": {
+      // AoE is strongly preferred for wave clearing
+      if (hero.damageType === "Area") mult *= 1.5;
+      if (hero.damageType === "Single" && hero.class !== "Tank") mult *= 0.7;
+      
+      // S-tier Adventure troops
+      if (hero.name === "Frost Queen") mult *= 1.8; // AoE + slow is perfect for waves
+      if (hero.name === "Radiant Warrior") mult *= 1.7; // team shield keeps everyone alive
+      if (hero.name === "Oracle") mult *= 1.6; // damage buff for whole team
+      if (hero.name === "Mist Archer") mult *= 1.5; // AoE DoT
+      if (hero.name === "Blazeking") mult *= 1.4; // continuous AoE damage
+      
+      // Slows/CC are critical against fast enemies
+      if (hero.name === "Snowball Thrower") mult *= 1.3;
+      if (hero.name === "Snowman Warrior") mult *= 1.3;
+      if (hero.name === "Tide Lord") mult *= 1.4; // pull + damage
+      
+      // Need strong front line
+      if (hero.class === "Tank" && (hero.placement || "").includes("Front")) mult *= 1.3;
+      if (hero.class === "Support") mult *= 1.2;
+      break;
+    }
+    
+    case "Infinite War": {
+      // Sustain is EVERYTHING — dual healers are mandatory for wave 60+
+      if (hero.name === "Flame Duelist") mult *= 1.8; // self-heal sustain
+      if (hero.name === "Wooden Wizard") mult *= 1.8; // area heal
+      if (hero.name === "Grace Priest") mult *= 1.7; // healing
+      if (hero.name === "Woodland Guardian") mult *= 1.7; // team heal
+      
+      // Triple buff stack for DPS amplification
+      if (hero.name === "Oracle") mult *= 2.0; // mandatory L7
+      if (hero.name === "Melody Weaver") mult *= 1.8; // attack speed buff
+      if (hero.name === "Starlight Apostle") mult *= 1.8; // attack buff
+      
+      // Chain CC interrupts enemy abilities
+      if (hero.name === "Gryphon Knight") mult *= 1.5;
+      if (hero.name === "Goddess of War") mult *= 1.5;
+      if (hero.name === "Ursa Champion") mult *= 1.4;
+      
+      // Tanks must be durable
+      if (hero.class === "Tank") mult *= 1.3;
+      if (hero.defense === "High" || hero.defense === "Very High") mult *= 1.2;
+      
+      // Support is critical
+      if (hero.class === "Support") mult *= 1.4;
+      
+      // Healing troops get extra bonus
+      if (hero.abilityDesc && (hero.abilityDesc.toLowerCase().includes("heal") || hero.abilityDesc.toLowerCase().includes("restore"))) mult *= 1.3;
+      break;
+    }
+    
+    case "Hunting": {
+      // Boss fights — single target DPS is king, but depends on boss
       if (huntingBoss === "Twin-Dragon") {
-        if (hero.attribute === "Wind") mult *= 1.5;
-        if (hero.attribute === "Water" || hero.attribute === "Fire") mult *= 0.6;
+        if (hero.attribute === "Wind") mult *= 1.8; // weakness
+        if (hero.attribute === "Water") mult *= 0.4; // resisted
+        if (hero.attribute === "Fire") mult *= 0.4; // resisted
       } else if (huntingBoss === "Evil Ivy") {
-        if (hero.attribute === "Fire") mult *= 1.5;
-        if (hero.attribute === "Wood") mult *= 0.6;
+        if (hero.attribute === "Fire") mult *= 1.8; // weakness
+        if (hero.attribute === "Wood") mult *= 0.4; // resisted
+        // Evil Ivy lowers defense — high ATK troops matter more
+        if (hero.name === "Flame Duelist") mult *= 2.0;
+        if (hero.name === "Nine Tailed Fox") mult *= 2.0;
+      }
+      
+      // S-tier hunting troops
+      if (hero.name === "Royal Archer") mult *= 1.8; // L6 has boss damage bonus
+      if (hero.name === "Jungle Ranger") mult *= 1.6; // passive fires constantly on high-HP
+      if (hero.name === "Melody Weaver") mult *= 1.5; // attack speed buff
+      if (hero.name === "Starlight Apostle") mult *= 1.5; // attack buff
+      
+      // DPS classes are priority
+      if (["Marksman", "Mage", "Assassin"].includes(hero.class)) mult *= 1.4;
+      if (hero.class === "Warrior") mult *= 1.2;
+      
+      // Single target preferred for bosses
+      if (hero.damageType === "Single") mult *= 1.3;
+      
+      // Minimal tanks needed
+      if (hero.class === "Tank") mult *= 0.8;
+      break;
+    }
+    
+    case "Clan War": {
+      // Similar to Arena but with territory-specific considerations
+      // Spider boss uses AoE bombs — need spread formation
+      // Dragon Knight guardians scale with tower level
+      
+      // Area damage is strong
+      if (hero.damageType === "Area") mult *= 1.3;
+      
+      // S-tier for Clan War
+      if (hero.name === "Frost Queen") mult *= 1.7;
+      if (hero.name === "Radiant Warrior") mult *= 1.6;
+      if (hero.name === "Oracle") mult *= 1.5;
+      if (hero.name === "Bomber") mult *= 1.5;
+      
+      // Need balanced composition
+      if (hero.class === "Tank") mult *= 1.2;
+      if (hero.class === "Support") mult *= 1.3;
+      
+      // Formation counters apply (reuse Arena logic)
+      if (formation === "Backstab") {
+        if (hero.name === "Bomber") mult *= 2.0;
+        if (hero.name === "Frost Queen") mult *= 1.5;
+      }
+      if (formation === "Dash") {
+        if (hero.name === "Oracle") mult *= 1.5;
+        if (hero.class === "Support") mult *= 1.3;
       }
       break;
-    case "Infinite War":
-      if (hero.class === "Support") mult *= 1.3;
-      if (hero.class === "Tank") mult *= 1.25;
-      if (hero.name === "Seraph") mult *= 1.4;
-      if (hero.name === "Wooden Wizard") mult *= 1.3;
+    }
+    
+    case "Clan Hunt": {
+      // Pure single-target DPS with triple buff stack
+      // This is about maximizing damage to a single boss
+      
+      // Triple buff stack is mandatory
+      if (hero.name === "Oracle") mult *= 2.0;
+      if (hero.name === "Melody Weaver") mult *= 1.8;
+      if (hero.name === "Starlight Apostle") mult *= 1.8;
+      
+      // Top single-target DPS
+      if (hero.name === "Royal Archer") mult *= 2.0; // boss damage passive
+      if (hero.name === "Elven Archer") mult *= 1.7;
+      if (hero.name === "Nine Tailed Fox") mult *= 1.7;
+      if (hero.name === "Firepower Vanguard") mult *= 1.6;
+      if (hero.name === "Jungle Ranger") mult *= 1.5;
+      
+      // Single target is everything
+      if (hero.damageType === "Single") mult *= 1.5;
+      if (hero.damageType === "Area") mult *= 0.7; // AoE wastes damage on boss
+      
+      // DPS classes heavily prioritized
+      if (["Marksman", "Assassin"].includes(hero.class)) mult *= 1.5;
+      if (hero.class === "Mage") mult *= 1.3;
+      
+      // Minimal tanks — just enough to survive
+      if (hero.class === "Tank") mult *= 0.6;
+      // Support is only valuable if it buffs damage
+      if (hero.class === "Support" && !(hero.abilityDesc || "").toLowerCase().includes("attack")) mult *= 0.7;
       break;
-    case "Clan War":
-      if (hero.class === "Tank") mult *= 1.15;
-      if (hero.class === "Support") mult *= 1.15;
-      if (hero.class === "Warrior") mult *= 1.1;
-      if (hero.tier === "S") mult *= 1.15;
-      break;
-    case "Clan Hunt":
-      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") mult *= 1.35;
-      if (hero.name === "Royal Archer") mult *= 1.4;
-      if (hero.name === "Nine-Tailed Fox") mult *= 1.3;
-      if (hero.name === "Mist Archer") mult *= 1.3;
-      break;
-    case "Adventure":
-      if (hero.class === "Tank" && normalizePlacement(hero.placement) === "Front") mult *= 1.25;
-      if (hero.class === "Support") mult *= 1.15;
-      if (hero.class === "Marksman" || hero.class === "Mage") mult *= 1.15;
-      break;
+    }
   }
+  
   return mult;
 }
+
 
 function getPlaystyleMultiplier(hero: any, playstyle?: string): number {
   let mult = 1.0;
