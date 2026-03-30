@@ -781,12 +781,28 @@ function optimizeLineup(
 
     // Second pass: grid still has empty cells — find cheapest troops that fit remaining budget
     if (selected.length < MAX_GRID_CELLS) {
-      const remaining = byScore
+      const remaining = scoredHeroes
         .filter(e => !selectedRosterIds.has(e.id))
         .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
       for (const entry of remaining) {
         if (selected.length >= MAX_GRID_CELLS) break;
-        if (totalElixir + entry.elixirCost > elixirBudget) continue; // NEVER exceed budget
+        if (totalElixir + entry.elixirCost <= elixirBudget) {
+          selected.push(entry);
+          selectedRosterIds.add(entry.id);
+          totalElixir += entry.elixirCost;
+        }
+      }
+    }
+
+    // Third pass: FILL THE GRID — if cells are still empty, add troops even if over budget
+    // Filling the grid is MORE important than staying under budget
+    // The budget is a guideline, not a hard wall — an extra 2-4 elixir is worth having a full board
+    if (selected.length < MAX_GRID_CELLS) {
+      const stillAvailable = scoredHeroes
+        .filter(e => !selectedRosterIds.has(e.id))
+        .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
+      for (const entry of stillAvailable) {
+        if (selected.length >= MAX_GRID_CELLS) break;
         selected.push(entry);
         selectedRosterIds.add(entry.id);
         totalElixir += entry.elixirCost;
@@ -794,8 +810,8 @@ function optimizeLineup(
     }
   }
 
-  // CRITICAL INVARIANT: totalElixir must NEVER exceed elixirBudget
-  // (enforced by all paths above — no troop is added if it would go over)
+  // Note: totalElixir may slightly exceed budget if needed to fill the grid
+  // This is intentional — a full grid beats staying under budget
 
   // --- Formation suggestion ---
   let suggestedFormation = formation;
