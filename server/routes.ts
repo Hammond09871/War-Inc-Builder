@@ -720,16 +720,19 @@ function optimizeLineup(
     };
   });
 
-  // Sort by efficiency (score per elixir) descending
-  scoredHeroes.sort((a, b) => b.efficiency - a.efficiency);
+  // === NEW SELECTION ALGORITHM ===
+  // PRIMARY GOAL: Fill all 42 grid cells
+  // SECONDARY GOAL: Maximize power within elixir budget
+  // STRATEGY: Pick the strongest troops that fit the budget, then if grid isn't full,
+  //           keep adding the strongest remaining troops even if they push slightly over
+  //           budget — but prefer cheap troops to fill remaining slots efficiently.
 
   const selected: any[] = [];
   const selectedRosterIds = new Set<number>();
   let totalElixir = 0;
 
-  function tryAdd(entry: any): boolean {
+  function addEntry(entry: any): boolean {
     if (selectedRosterIds.has(entry.id)) return false;
-    if (totalElixir + entry.elixirCost > elixirBudget) return false;
     if (selected.length >= MAX_GRID_CELLS) return false;
     selected.push(entry);
     selectedRosterIds.add(entry.id);
@@ -737,36 +740,60 @@ function optimizeLineup(
     return true;
   }
 
-  // --- Phase 1: Role guarantees ---
+  // Sort all troops by finalScore descending (strongest first)
+  const byScore = [...scoredHeroes].sort((a, b) => b.finalScore - a.finalScore);
+  // Also sort by efficiency for budget-conscious filling
+  const byEfficiency = [...scoredHeroes].sort((a, b) => b.efficiency - a.efficiency);
+  // And by cheapest for grid-filling
+  const byCheapest = [...scoredHeroes].sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
+
+  // --- Phase 1: Role guarantees (balanced/defensive) ---
   if (playstyle !== "aggressive") {
-    const bestTank = scoredHeroes.find(h => h.hero.class === "Tank");
-    if (bestTank) tryAdd(bestTank);
-    const bestSupport = scoredHeroes.find(h => h.hero.class === "Support" && !selectedRosterIds.has(h.id));
-    if (bestSupport) tryAdd(bestSupport);
+    const bestTank = byScore.find(h => h.hero.class === "Tank");
+    if (bestTank) addEntry(bestTank);
+    const bestSupport = byScore.find(h => h.hero.class === "Support" && !selectedRosterIds.has(h.id));
+    if (bestSupport) addEntry(bestSupport);
   }
   if (playstyle === "defensive") {
-    const extra = scoredHeroes.find(h => (h.hero.class === "Tank" || h.hero.class === "Support") && !selectedRosterIds.has(h.id));
-    if (extra) tryAdd(extra);
+    const extra = byScore.find(h => (h.hero.class === "Tank" || h.hero.class === "Support") && !selectedRosterIds.has(h.id));
+    if (extra) addEntry(extra);
   }
 
-  // --- Phase 2: Fill by efficiency ---
-  for (const entry of scoredHeroes) {
+  // --- Phase 2: Fill within budget by strongest ---
+  // Add the strongest troops that fit within the elixir budget
+  for (const entry of byScore) {
     if (selected.length >= MAX_GRID_CELLS) break;
     if (selectedRosterIds.has(entry.id)) continue;
     if (totalElixir + entry.elixirCost > elixirBudget) continue;
-    tryAdd(entry);
+    addEntry(entry);
   }
 
-  // --- Phase 3: Squeeze — fill remaining budget with cheapest troops ---
-  const budgetLeft = elixirBudget - totalElixir;
-  if (budgetLeft > 0 && selected.length < MAX_GRID_CELLS) {
-    const cheapCandidates = scoredHeroes
-      .filter(h => !selectedRosterIds.has(h.id) && h.elixirCost <= budgetLeft)
-      .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
-    for (const entry of cheapCandidates) {
+  // --- Phase 3: Fill remaining grid cells ---
+  // If the grid isn't full, keep adding troops — prioritize cheap ones to fit more
+  // Even if we're at budget, we MUST fill the grid. Use the cheapest available troops.
+  if (selected.length < MAX_GRID_CELLS) {
+    for (const entry of byCheapest) {
       if (selected.length >= MAX_GRID_CELLS) break;
-      if (totalElixir + entry.elixirCost > elixirBudget) continue;
-      tryAdd(entry);
+      if (selectedRosterIds.has(entry.id)) continue;
+      // Allow going over budget to fill the grid — grid fullness is priority #1
+      if (totalElixir + entry.elixirCost > elixirBudget) {
+        // Only allow if we still need to fill cells and this is cheap (2-4 elixir)
+        if (entry.elixirCost <= 4 && selected.length < MAX_GRID_CELLS - 2) {
+          addEntry(entry);
+          continue;
+        }
+        continue;
+      }
+      addEntry(entry);
+    }
+  }
+
+  // --- Phase 4: Final squeeze — if STILL not full, add ANY remaining troop ---
+  if (selected.length < MAX_GRID_CELLS) {
+    for (const entry of byEfficiency) {
+      if (selected.length >= MAX_GRID_CELLS) break;
+      if (selectedRosterIds.has(entry.id)) continue;
+      addEntry(entry); // add regardless of budget — filling the grid is #1 priority
     }
   }
 
