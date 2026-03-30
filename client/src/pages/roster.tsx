@@ -5,7 +5,7 @@ import { HeroCard } from "@/components/HeroCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Camera, Search, Zap } from "lucide-react";
@@ -185,28 +185,70 @@ export default function MyRoster() {
                       </Button>
                     </div>
 
-                    {/* Level */}
-                    <div className="space-y-1.5 mb-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Level</span>
-                        <span className="text-xs font-bold text-primary" data-testid={`text-level-${entry.id}`}>{entry.level}</span>
+                    {/* Level Dropdown */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Level</span>
+                      <Select
+                        value={String(entry.level)}
+                        onValueChange={(v) => updateMutation.mutate({ id: entry.id, level: parseInt(v) })}
+                      >
+                        <SelectTrigger className="w-[70px] h-7 text-xs" style={{ background: "#1E2233" }} data-testid={`select-level-${entry.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1,2,3,4,5,6,7,8,9].map(lv => (
+                            <SelectItem key={lv} value={String(lv)}>Lv. {lv}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <Zap className="w-3 h-3 text-primary" />
+                        <span className="text-[10px] text-muted-foreground">Power:</span>
+                        <span className="text-xs font-semibold" data-testid={`text-power-${entry.id}`}>{power.toLocaleString()}</span>
                       </div>
-                      <Slider
-                        value={[entry.level]}
-                        min={1}
-                        max={9}
-                        step={1}
-                        onValueChange={([v]) => updateMutation.mutate({ id: entry.id, level: v })}
-                        className="w-full"
-                        data-testid={`slider-level-${entry.id}`}
-                      />
                     </div>
 
-                    {/* Power */}
-                    <div className="flex items-center gap-1.5 pt-2 border-t border-border/30">
-                      <Zap className="w-3 h-3 text-primary" />
-                      <span className="text-[10px] text-muted-foreground">Power:</span>
-                      <span className="text-xs font-semibold" data-testid={`text-power-${entry.id}`}>{power.toLocaleString()}</span>
+                    {/* Abilities — show based on unlock level */}
+                    <div className="space-y-1.5 pt-2 border-t border-border/30">
+                      {/* Main ability — always shown */}
+                      {entry.hero?.ability && (
+                        <div className="rounded p-2" style={{ background: "rgba(212, 168, 67, 0.08)", border: "1px solid rgba(212, 168, 67, 0.2)" }}>
+                          <span className="text-[10px] text-primary font-semibold">Main: </span>
+                          <span className="text-[10px] text-muted-foreground">{entry.hero.ability}</span>
+                        </div>
+                      )}
+                      {/* 2nd ability — parse unlock level from description */}
+                      {entry.hero?.level6Upgrade && (() => {
+                        const match = entry.hero.level6Upgrade.match(/Lv\.?\s*(\d+)/i);
+                        const unlockLv = match ? parseInt(match[1]) : 6;
+                        const unlocked = entry.level >= unlockLv;
+                        return unlocked ? (
+                          <div className="rounded p-2" style={{ background: "rgba(59, 142, 165, 0.08)", border: "1px solid rgba(59, 142, 165, 0.2)" }}>
+                            <span className="text-[10px] font-semibold" style={{ color: "#3B8EA5" }}>2nd: </span>
+                            <span className="text-[10px] text-muted-foreground">{entry.hero.level6Upgrade}</span>
+                          </div>
+                        ) : (
+                          <div className="rounded p-2 opacity-40" style={{ background: "#1E2233", border: "1px solid #2a2f40" }}>
+                            <span className="text-[10px] text-muted-foreground">🔒 2nd ability unlocks at Lv.{unlockLv}</span>
+                          </div>
+                        );
+                      })()}
+                      {/* 3rd ability — parse unlock level from description */}
+                      {entry.hero?.level7Upgrade && (() => {
+                        const match = entry.hero.level7Upgrade.match(/Lv\.?\s*(\d+)/i);
+                        const unlockLv = match ? parseInt(match[1]) : 7;
+                        const unlocked = entry.level >= unlockLv;
+                        return unlocked ? (
+                          <div className="rounded p-2" style={{ background: "rgba(155, 89, 182, 0.08)", border: "1px solid rgba(155, 89, 182, 0.2)" }}>
+                            <span className="text-[10px] font-semibold" style={{ color: "#9B59B6" }}>3rd: </span>
+                            <span className="text-[10px] text-muted-foreground">{entry.hero.level7Upgrade}</span>
+                          </div>
+                        ) : (
+                          <div className="rounded p-2 opacity-40" style={{ background: "#1E2233", border: "1px solid #2a2f40" }}>
+                            <span className="text-[10px] text-muted-foreground">🔒 3rd ability unlocks at Lv.{unlockLv}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
