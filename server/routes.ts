@@ -837,12 +837,19 @@ function optimizeLineup(
         }
         if (didPlace) break;
       }
-      placements[pos].push(entry);
+      if (didPlace) {
+        placements[pos].push(entry);
+      }
     }
   }
 
-  // --- Reasoning with power & efficiency ---
-  const reasoning = selected.map(entry => {
+  // Recalculate totalElixir and filter selected to only placed troops
+  const placedRosterIds = new Set(gridPlacements.map(p => p.rosterId));
+  const actualSelected = selected.filter(e => placedRosterIds.has(e.id));
+  totalElixir = actualSelected.reduce((sum: number, e: any) => sum + e.elixirCost, 0);
+
+  // --- Reasoning with power & efficiency (only for placed troops) ---
+  const reasoning = actualSelected.map(entry => {
     const reasons: string[] = [];
     const power = entry.hp + entry.atk;
     reasons.push(`Power ${power.toLocaleString()} (${entry.hp} HP + ${entry.atk} ATK)`);
@@ -878,12 +885,12 @@ function optimizeLineup(
     counterPickAdvice = counterMap[enemyFormation] || "Standard formation recommended.";
   }
 
-  const totalPower = selected.reduce((sum, entry) => sum + entry.hp + entry.atk, 0);
+  const totalPower = actualSelected.reduce((sum: number, entry: any) => sum + entry.hp + entry.atk, 0);
 
   // --- Synergy engine ---
   const synergies: { type: string; title: string; description: string; heroes: string[] }[] = [];
-  const selectedNames = new Set(selected.map(e => e.hero.name));
-  const selectedHeroes = selected.map(e => e.hero);
+  const selectedNames = new Set(actualSelected.map(e => e.hero.name));
+  const selectedHeroes = actualSelected.map(e => e.hero);
 
   // 1. Attribute synergy: 3+ of same attribute
   const attrCounts: Record<string, string[]> = {};
@@ -917,7 +924,7 @@ function optimizeLineup(
       description: "Multiple tanks and supports create a durable front line with sustained healing. Your DPS can deal damage safely from behind.",
       heroes: dedupeNames(selectedHeroes.filter(h => h.class === "Tank" || h.class === "Support").map(h => h.name)),
     });
-  } else if (dps >= Math.ceil(selected.length * 0.6)) {
+  } else if (dps >= Math.ceil(actualSelected.length * 0.6)) {
     synergies.push({
       type: "role_balance",
       title: "Glass Cannon Composition",
@@ -971,7 +978,7 @@ function optimizeLineup(
   }
 
   return {
-    lineup: selected.map(e => ({
+    lineup: actualSelected.map(e => ({
       rosterId: e.id,
       heroId: e.hero.id,
       heroName: e.hero.name,
