@@ -812,13 +812,40 @@ function optimizeLineup(
 
   const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
 
-  for (const pos of ["Front", "Mid", "Back"] as const) {
-    const rows = rowRanges[pos];
-    const entries = byPlacement[pos];
-    for (const entry of entries) {
-      let didPlace = false;
+  // Place troops: try preferred zone first, then overflow to any available cell
+  const allEntriesToPlace = [
+    ...byPlacement["Front"].map((e: any) => ({ ...e, preferredRows: rowRanges["Front"] })),
+    ...byPlacement["Mid"].map((e: any) => ({ ...e, preferredRows: rowRanges["Mid"] })),
+    ...byPlacement["Back"].map((e: any) => ({ ...e, preferredRows: rowRanges["Back"] })),
+  ];
+
+  for (const entry of allEntriesToPlace) {
+    let didPlace = false;
+    // First try: preferred rows
+    for (const col of colOrder) {
+      for (const row of entry.preferredRows) {
+        if (isCellLocked(row, col)) continue;
+        if (gridOccupied[row][col]) continue;
+        gridOccupied[row][col] = true;
+        gridPlacements.push({
+          row, col,
+          heroName: entry.hero.name,
+          heroId: entry.hero.id,
+          rosterId: entry.id,
+          level: entry.level,
+          rarity: entry.hero.rarity,
+          heroClass: entry.hero.class,
+          elixir: entry.elixirCost,
+        });
+        didPlace = true;
+        break;
+      }
+      if (didPlace) break;
+    }
+    // Second try: overflow to ANY open cell on the grid
+    if (!didPlace) {
       for (const col of colOrder) {
-        for (const row of rows) {
+        for (let row = 0; row < GRID_ROWS; row++) {
           if (isCellLocked(row, col)) continue;
           if (gridOccupied[row][col]) continue;
           gridOccupied[row][col] = true;
@@ -837,9 +864,10 @@ function optimizeLineup(
         }
         if (didPlace) break;
       }
-      if (didPlace) {
-        placements[pos].push(entry);
-      }
+    }
+    if (didPlace) {
+      const pos = normalizePlacement(entry.hero.placement);
+      placements[pos].push(entry);
     }
   }
 
