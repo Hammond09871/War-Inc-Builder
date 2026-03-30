@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
@@ -25,6 +25,7 @@ export default function Optimizer() {
   const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
   const [elixirBudget, setElixirBudget] = useState(100);
   const [playstyle, setPlaystyle] = useState("Balanced");
+  const [buildType, setBuildType] = useState("Mixed");
   const [result, setResult] = useState<any>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [paywallTrigger, setPaywallTrigger] = useState<string>("optimize");
@@ -46,7 +47,7 @@ export default function Optimizer() {
 
   const optimizeMutation = useMutation({
     mutationFn: async () => {
-      const body: any = { mode, elixirBudget, playstyle: playstyle.toLowerCase() };
+      const body: any = { mode, elixirBudget, playstyle: playstyle.toLowerCase(), buildType: buildType.toLowerCase() };
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
       }
@@ -263,6 +264,26 @@ export default function Optimizer() {
             ))}
           </div>
           <p className="text-[10px] text-muted-foreground">{PLAYSTYLE_INFO[playstyle]?.description}</p>
+        </div>
+
+        {/* Build Type Selector */}
+        <div className="space-y-2">
+          <span className="text-xs text-muted-foreground">Build Type:</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {BUILD_TYPES.map((bt) => (
+              <Button
+                key={bt}
+                variant={buildType === bt ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-7 px-3"
+                onClick={() => setBuildType(bt)}
+                data-testid={`button-buildtype-${bt.toLowerCase()}`}
+              >
+                {bt}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">{BUILD_TYPE_INFO[buildType]?.description}</p>
         </div>
 
         {/* Optimize Button */}

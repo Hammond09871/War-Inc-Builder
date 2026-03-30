@@ -16,7 +16,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 type PlacedHero = {
@@ -68,6 +68,7 @@ export default function LineupBuilder() {
   const [formationInfoOpen, setFormationInfoOpen] = useState(false);
   const [elixirLimit, setElixirLimit] = useState(100);
   const [playstyle, setPlaystyle] = useState("Balanced");
+  const [buildType, setBuildType] = useState("Mixed");
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importCode, setImportCode] = useState("");
@@ -143,6 +144,7 @@ export default function LineupBuilder() {
         huntingBoss: mode === "Hunting" ? huntingBoss : undefined,
         elixirBudget: elixirLimit,
         playstyle: playstyle.toLowerCase(),
+        buildType: buildType.toLowerCase(),
       });
       return res.json();
     },
@@ -401,6 +403,26 @@ export default function LineupBuilder() {
             ))}
           </div>
           <span className="text-[10px] text-muted-foreground">{PLAYSTYLE_INFO[playstyle]?.description}</span>
+        </div>
+
+        {/* Build Type Selector */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-muted-foreground">Build Type:</span>
+          <div className="flex gap-1.5">
+            {BUILD_TYPES.map((bt) => (
+              <Button
+                key={bt}
+                variant={buildType === bt ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-7 px-3"
+                onClick={() => setBuildType(bt)}
+                data-testid={`button-buildtype-${bt.toLowerCase()}`}
+              >
+                {bt}
+              </Button>
+            ))}
+          </div>
+          <span className="text-[10px] text-muted-foreground">{BUILD_TYPE_INFO[buildType]?.description}</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">

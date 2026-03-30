@@ -407,7 +407,7 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited optimizations.", generationsUsed: user.generationsUsed, limit: effectiveGenLimit });
     }
 
-    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss, playstyle } = req.body;
+    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss, playstyle, buildType } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
@@ -416,7 +416,7 @@ export async function registerRoutes(
     }
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
-    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle);
+    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle, buildType);
 
     // Increment generation counter for non-premium, non-admin users
     if (!user.isPremium && !user.isAdmin) {
@@ -581,15 +581,53 @@ function dedupeNames(names: string[]): string[] {
   return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
 }
 
-function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string): number {
+function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string, enemyFormation?: string): number {
   let mult = 1.0;
   switch (mode) {
-    case "Arena":
-      if (hero.class === "Tank") mult *= 1.15;
-      if (formation === "Backstab" && hero.name === "Bomber") mult *= 1.5;
-      if (formation === "Dash" && hero.name === "Oracle") mult *= 1.4;
-      if (formation === "Dash" && hero.class === "Support") mult *= 1.15;
+    case "Arena": {
+      // SS-tier Arena troops get massive boost
+      const ssTier = ["Frost Queen", "Radiant Warrior", "Mist Archer"];
+      const sTierArena = ["Tide Lord", "Blazeking", "Darkmoon Queen", "Goddess of War",
+        "Barbarian Tyrant", "Ursa Champion", "Elven Archer", "Oracle", "Bomber"];
+
+      if (ssTier.includes(hero.name)) mult *= 2.0;
+      else if (sTierArena.includes(hero.name)) mult *= 1.6;
+
+      // Area damage is critical in Arena — single target underperforms
+      if (hero.damageType === "Area") mult *= 1.4;
+      if (hero.damageType === "Single" && hero.class !== "Tank") mult *= 0.7;
+
+      // Formation-specific
+      if (formation === "Backstab") {
+        if (hero.name === "Bomber") mult *= 2.5;
+        if (hero.name === "Frost Queen") mult *= 2.0;
+        if (hero.class === "Tank") mult *= 1.2;
+      }
+      if (formation === "Dash") {
+        if (hero.name === "Oracle") mult *= 2.0;
+        if (hero.class === "Support") mult *= 1.5;
+        if (hero.name === "Radiant Warrior") mult *= 1.8;
+      }
+      if (formation === "Split") {
+        if (hero.name === "Oracle") mult *= 2.0;
+        if (hero.class === "Tank") mult *= 1.3;
+      }
+      if (formation === "Outflank") {
+        if (hero.name === "Bomber") mult *= 1.8;
+        if (hero.name === "Frost Queen") mult *= 1.5;
+        if (hero.class === "Tank") mult *= 1.3;
+      }
+
+      // Counter-pick bonuses when enemy formation is known
+      if (enemyFormation === "Dash") {
+        if (hero.name === "Bomber" || hero.name === "Frost Queen") mult *= 1.5;
+      }
+      if (enemyFormation === "Backstab") {
+        if (hero.class === "Tank") mult *= 1.3;
+        if (hero.name === "Paladin") mult *= 2.0;
+      }
       break;
+    }
     case "Hunting":
       if (hero.class === "Marksman" || hero.class === "Assassin") mult *= 1.35;
       if (hero.class === "Mage") mult *= 1.2;
@@ -650,13 +688,32 @@ function getPlaystyleMultiplier(hero: any, playstyle?: string): number {
   return mult;
 }
 
+function getBuildTypeMultiplier(hero: any, buildType?: string): number {
+  let mult = 1.0;
+  if (buildType === "melee") {
+    if (["Tank", "Warrior"].includes(hero.class)) mult *= 1.4;
+    const pos = normalizePlacement(hero.placement);
+    if (pos === "Front") mult *= 1.3;
+    if (hero.class === "Marksman") mult *= 0.5;
+    if (pos === "Back" && hero.class !== "Support") mult *= 0.6;
+  }
+  if (buildType === "ranged") {
+    if (["Marksman", "Mage"].includes(hero.class)) mult *= 1.4;
+    const pos = normalizePlacement(hero.placement);
+    if (pos === "Back" || pos === "Mid") mult *= 1.3;
+    if (hero.class === "Tank") mult *= 0.5;
+    if (hero.class === "Warrior" && pos === "Front") mult *= 0.6;
+  }
+  return mult;
+}
+
 function isCellLocked(row: number, col: number): boolean {
   // Row 7 (index 6) is COMPLETELY locked — unlocks at Commander Level 999
   if (row === 6) return true;
   return false;
 }
 
-// Optimization engine — v2 rewrite with efficiency-based knapsack + grid placement
+// Optimization engine — v3 with efficiency-based knapsack + grid placement
 function optimizeLineup(
   roster: any[],
   allHeroes: any[],
@@ -666,7 +723,8 @@ function optimizeLineup(
   enemyFormation?: string,
   enemyHeroIds?: number[],
   huntingBoss?: string,
-  playstyle?: string
+  playstyle?: string,
+  buildType?: string
 ) {
   const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
   const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
@@ -688,8 +746,9 @@ function optimizeLineup(
     if (has3rd) abilityBonus += baseScore * 0.20;
 
     // Multiplicative multipliers
-    const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss);
+    const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss, enemyFormation);
     const styleMult = getPlaystyleMultiplier(hero, playstyle);
+    const buildMult = getBuildTypeMultiplier(hero, buildType);
     const tierMult = tierWeight[hero.tier] || 1.0;
 
     // Counter-pick bonus for Arena
@@ -700,7 +759,7 @@ function optimizeLineup(
       if (enemyFormation === "Split" && formation === "Dash") counterMult = 1.1;
     }
 
-    const finalScore = (baseScore + abilityBonus) * modeMult * styleMult * tierMult * counterMult;
+    const finalScore = (baseScore + abilityBonus) * modeMult * styleMult * buildMult * tierMult * counterMult;
     const elixirCost = hero.elixir || 1;
     const efficiency = finalScore / elixirCost;
 

@@ -65,6 +65,13 @@ export const FORMATION_INFO: Record<string, { description: string; strongAgainst
   },
 };
 
+export const BUILD_TYPES = ["Mixed", "Melee", "Ranged"] as const;
+export const BUILD_TYPE_INFO: Record<string, { description: string }> = {
+  Mixed: { description: "Balanced mix of melee and ranged troops." },
+  Melee: { description: "Close-combat focused. Warriors, tanks, and frontline fighters." },
+  Ranged: { description: "Long-range damage. Archers, mages, and back-row attackers." },
+};
+
 export const PLAYSTYLES = ["Balanced", "Aggressive", "Defensive"] as const;
 export const PLAYSTYLE_INFO: Record<string, { description: string }> = {
   Balanced: { description: "Even mix of offense and defense. Good all-around team." },
