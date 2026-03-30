@@ -557,7 +557,105 @@ function getHeroAtk(statsJson: string, level: number): number {
   return 0;
 }
 
-// Optimization engine
+
+// --- Standalone helpers for optimizer ---
+
+function normalizePlacement(p: string): string {
+  if (!p) return "Mid";
+  const lower = p.toLowerCase();
+  if (lower.startsWith("front")) return "Front";
+  if (lower.startsWith("mid")) return "Mid";
+  if (lower.startsWith("back")) return "Back";
+  return "Mid";
+}
+
+function parseAbilityUnlock(desc: string | null | undefined, defaultLevel: number): number {
+  if (!desc) return defaultLevel;
+  const m = desc.match(/Lv\.?\s*(\d+)/i);
+  return m ? parseInt(m[1]) : defaultLevel;
+}
+
+function dedupeNames(names: string[]): string[] {
+  const counts: Record<string, number> = {};
+  for (const n of names) counts[n] = (counts[n] || 0) + 1;
+  return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
+}
+
+function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string): number {
+  let mult = 1.0;
+  switch (mode) {
+    case "Arena":
+      if (hero.class === "Tank") mult *= 1.15;
+      if (formation === "Backstab" && hero.name === "Bomber") mult *= 1.5;
+      if (formation === "Dash" && hero.name === "Oracle") mult *= 1.4;
+      if (formation === "Dash" && hero.class === "Support") mult *= 1.15;
+      break;
+    case "Hunting":
+      if (hero.class === "Marksman" || hero.class === "Assassin") mult *= 1.35;
+      if (hero.class === "Mage") mult *= 1.2;
+      if (hero.class === "Support") mult *= 1.25;
+      if (hero.name === "Royal Archer") mult *= 1.4;
+      if (hero.name === "Nine-Tailed Fox") mult *= 1.3;
+      if (huntingBoss === "Twin-Dragon") {
+        if (hero.attribute === "Wind") mult *= 1.5;
+        if (hero.attribute === "Water" || hero.attribute === "Fire") mult *= 0.6;
+      } else if (huntingBoss === "Evil Ivy") {
+        if (hero.attribute === "Fire") mult *= 1.5;
+        if (hero.attribute === "Wood") mult *= 0.6;
+      }
+      break;
+    case "Infinite War":
+      if (hero.class === "Support") mult *= 1.3;
+      if (hero.class === "Tank") mult *= 1.25;
+      if (hero.name === "Seraph") mult *= 1.4;
+      if (hero.name === "Wooden Wizard") mult *= 1.3;
+      break;
+    case "Clan War":
+      if (hero.class === "Tank") mult *= 1.15;
+      if (hero.class === "Support") mult *= 1.15;
+      if (hero.class === "Warrior") mult *= 1.1;
+      if (hero.tier === "S") mult *= 1.15;
+      break;
+    case "Clan Hunt":
+      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") mult *= 1.35;
+      if (hero.name === "Royal Archer") mult *= 1.4;
+      if (hero.name === "Nine-Tailed Fox") mult *= 1.3;
+      if (hero.name === "Mist Archer") mult *= 1.3;
+      break;
+    case "Adventure":
+      if (hero.class === "Tank" && normalizePlacement(hero.placement) === "Front") mult *= 1.25;
+      if (hero.class === "Support") mult *= 1.15;
+      if (hero.class === "Marksman" || hero.class === "Mage") mult *= 1.15;
+      break;
+  }
+  return mult;
+}
+
+function getPlaystyleMultiplier(hero: any, playstyle?: string): number {
+  let mult = 1.0;
+  if (playstyle === "aggressive") {
+    if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") mult *= 1.4;
+    if (hero.class === "Warrior") mult *= 1.2;
+    if (hero.damageType === "Area") mult *= 1.15;
+    if (hero.atkSpeed === "High" || hero.atkSpeed === "Very High") mult *= 1.1;
+    if (hero.class === "Tank") mult *= 0.5;
+    if (hero.class === "Support") mult *= 0.6;
+  } else if (playstyle === "defensive") {
+    if (hero.class === "Tank") mult *= 1.4;
+    if (hero.class === "Support") mult *= 1.3;
+    if (hero.defense === "High" || hero.defense === "Very High") mult *= 1.15;
+    if (hero.class === "Assassin") mult *= 0.6;
+    if (hero.class === "Marksman") mult *= 0.8;
+  }
+  return mult;
+}
+
+function isCellLocked(row: number, col: number): boolean {
+  if (row === 6) return col < 2 || col > 4;
+  return false;
+}
+
+// Optimization engine — v2 rewrite with efficiency-based knapsack + grid placement
 function optimizeLineup(
   roster: any[],
   allHeroes: any[],
@@ -569,159 +667,76 @@ function optimizeLineup(
   huntingBoss?: string,
   playstyle?: string
 ) {
-  const tierScore: Record<string, number> = {
-    S: 10, A: 8, B: 6, C: 4, D: 2
-  };
+  const MAX_GRID_CELLS = 45; // 7x7 = 49 minus 4 locked corners on row 7
+  const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
 
+  // --- Phase 0: Score every roster entry ---
   const scoredHeroes = roster.map(entry => {
     const hero = entry.hero;
-    let score = 0;
+    const hp = (() => { try { const s = JSON.parse(hero.stats); return s[String(entry.level)]?.hp || 0; } catch { return 0; } })();
+    const atk = getHeroAtk(hero.stats, entry.level);
+    const baseScore = hp + atk * 3;
 
-    const power = getHeroPower(hero.stats, entry.level);
-    score += power / 100;
-    score += entry.level * 10;
-    score += (tierScore[hero.tier] || 2) * 2;
+    // Ability bonuses as % of baseScore
+    const ab2Unlock = parseAbilityUnlock(hero.level6Upgrade, 6);
+    const ab3Unlock = parseAbilityUnlock(hero.level7Upgrade, 7);
+    const has2nd = hero.level6Upgrade && entry.level >= ab2Unlock;
+    const has3rd = hero.level7Upgrade && entry.level >= ab3Unlock;
+    let abilityBonus = 0;
+    if (has2nd) abilityBonus += baseScore * 0.15;
+    if (has3rd) abilityBonus += baseScore * 0.20;
 
-    // Ability unlock bonuses — parse actual unlock level from ability descriptions
-    // 2nd ability: check description for "Lv.X" prefix, default to level 6
-    // 3rd ability: check description for "Lv.9:" prefix, default to level 7
-    let ability2UnlockLevel = 6;
-    let ability3UnlockLevel = 7;
-    if (hero.level6Upgrade) {
-      const lvMatch = hero.level6Upgrade.match(/Lv\.?\s*(\d+)/i);
-      if (lvMatch) ability2UnlockLevel = parseInt(lvMatch[1]);
-    }
-    if (hero.level7Upgrade) {
-      const lvMatch = hero.level7Upgrade.match(/Lv\.?\s*(\d+)/i);
-      if (lvMatch) ability3UnlockLevel = parseInt(lvMatch[1]);
-    }
-    const has2ndAbility = hero.level6Upgrade && entry.level >= ability2UnlockLevel;
-    const has3rdAbility = hero.level7Upgrade && entry.level >= ability3UnlockLevel;
-    if (has2ndAbility) score += 15;
-    if (has3rdAbility) score += 20;
-    // Penalty for troops missing abilities they could have
-    if (hero.level6Upgrade && !has2ndAbility) score -= 5;
-    if (hero.level7Upgrade && !has3rdAbility) score -= 5;
+    // Multiplicative multipliers
+    const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss);
+    const styleMult = getPlaystyleMultiplier(hero, playstyle);
+    const tierMult = tierWeight[hero.tier] || 1.0;
 
-    switch (mode) {
-      case "Arena":
-        if (formation === "Backstab" && hero.name === "Bomber") score += 20;
-        if (formation === "Dash" && hero.name === "Oracle") score += 20;
-        if (formation === "Dash" && hero.class === "Support") score += 5;
-        if (hero.class === "Tank") score += 3;
-        break;
-      case "Hunting":
-        // Boss hunting mode — prioritize high single-target DPS and debuffers
-        if (hero.class === "Marksman" || hero.class === "Assassin") score += 10;
-        if (hero.class === "Mage") score += 6;
-        if (hero.class === "Support") score += 8;
-        if (hero.name === "Royal Archer") score += 15;
-        if (hero.name === "Nine-Tailed Fox") score += 12;
-
-        // Boss-specific scoring
-        if (huntingBoss === "Twin-Dragon") {
-          // Twin-Dragon: weakness Wind, resists Water & Fire
-          if (hero.attribute === "Wind") score += 20;
-          if (hero.attribute === "Water") score -= 15;
-          if (hero.attribute === "Fire") score -= 15;
-          // DPS classes get a bonus (maximize damage)
-          if (hero.class === "Marksman" || hero.class === "Assassin" || hero.class === "Mage") score += 10;
-        } else if (huntingBoss === "Evil Ivy") {
-          // Evil Ivy: weakness Fire, resists Wood
-          if (hero.attribute === "Fire") score += 20;
-          if (hero.attribute === "Wood") score -= 15;
-          // DPS classes get a bonus
-          if (hero.class === "Marksman" || hero.class === "Assassin" || hero.class === "Mage") score += 10;
-          // Evil Ivy reduces defense, so high ATK matters more
-          const heroAtk = getHeroAtk(hero.stats, entry.level);
-          if (heroAtk >= 400) score += 5;
-        }
-        break;
-      case "Infinite War":
-        if (hero.class === "Support") score += 10;
-        if (hero.class === "Tank") score += 8;
-        if (hero.name === "Seraph") score += 15;
-        if (hero.name === "Wooden Wizard") score += 10;
-        break;
-      case "Clan War":
-        // Similar to Arena but broader — balanced teams matter
-        if (hero.class === "Tank") score += 5;
-        if (hero.class === "Support") score += 5;
-        if (hero.class === "Warrior") score += 3;
-        if (hero.tier === "S") score += 5;
-        break;
-      case "Clan Hunt":
-        if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") score += 12;
-        if (hero.name === "Royal Archer") score += 15;
-        if (hero.name === "Nine-Tailed Fox") score += 10;
-        if (hero.name === "Mist Archer") score += 10;
-        break;
-      case "Adventure":
-        if (hero.class === "Tank" && hero.placement === "Front") score += 8;
-        if (hero.class === "Support") score += 5;
-        if (hero.class === "Marksman" || hero.class === "Mage") score += 5;
-        break;
-    }
-
+    // Counter-pick bonus for Arena
+    let counterMult = 1.0;
     if (mode === "Arena" && enemyFormation) {
-      if (enemyFormation === "Backstab" && formation === "Split") score += 5;
-      if (enemyFormation === "Dash" && formation === "Backstab") score += 5;
-      if (enemyFormation === "Split" && formation === "Dash") score += 5;
+      if (enemyFormation === "Backstab" && formation === "Split") counterMult = 1.1;
+      if (enemyFormation === "Dash" && formation === "Backstab") counterMult = 1.1;
+      if (enemyFormation === "Split" && formation === "Dash") counterMult = 1.1;
     }
 
-    // Playstyle scoring
-    if (playstyle === "aggressive") {
-      if (hero.class === "Marksman" || hero.class === "Mage" || hero.class === "Assassin") score += 20;
-      if (hero.class === "Warrior") score += 10;
-      if (hero.damageType === "Area") score += 10;
-      if (hero.atkSpeed === "High" || hero.atkSpeed === "Very High") score += 5;
-      if (hero.class === "Tank") score -= 25;
-      if (hero.class === "Support") score -= 15;
-      const heroAtk = getHeroAtk(hero.stats, entry.level);
-      score += Math.floor(heroAtk / 50);
-    } else if (playstyle === "defensive") {
-      if (hero.class === "Tank") score += 15;
-      if (hero.class === "Support") score += 10;
-      if (hero.defense === "High" || hero.defense === "Very High") score += 5;
-      if (hero.class === "Assassin") score -= 10;
-      if (hero.class === "Marksman") score -= 5;
-      try {
-        const stats = JSON.parse(hero.stats);
-        const lvl = stats[String(entry.level)];
-        if (lvl) score += Math.floor((lvl.hp || 0) / 100);
-      } catch {}
-    }
+    const finalScore = (baseScore + abilityBonus) * modeMult * styleMult * tierMult * counterMult;
+    const elixirCost = hero.elixir || 1;
+    const efficiency = finalScore / elixirCost;
 
-    return { ...entry, score, hero };
+    return {
+      ...entry,
+      hero,
+      baseScore,
+      finalScore,
+      efficiency,
+      elixirCost,
+      has2nd,
+      has3rd,
+      ab2Unlock,
+      ab3Unlock,
+      hp,
+      atk,
+    };
   });
 
-  scoredHeroes.sort((a, b) => b.score - a.score);
+  // Sort by efficiency (score per elixir) descending
+  scoredHeroes.sort((a, b) => b.efficiency - a.efficiency);
 
   const selected: any[] = [];
   const selectedRosterIds = new Set<number>();
   let totalElixir = 0;
-  const MAX_TROOPS = 18; // reasonable max for 7x7 grid
 
-  // Helper: normalize placement to Front/Mid/Back
-  function normalizePlacement(p: string): string {
-    if (p.startsWith("Front") || p === "Front") return "Front";
-    if (p.startsWith("Mid") || p === "Mid") return "Mid";
-    if (p.startsWith("Back") || p === "Back") return "Back";
-    return "Mid";
-  }
-
-  // Helper to add to selection
   function tryAdd(entry: any): boolean {
     if (selectedRosterIds.has(entry.id)) return false;
-    if (totalElixir + entry.hero.elixir > elixirBudget) return false;
-    if (selected.length >= MAX_TROOPS) return false;
+    if (totalElixir + entry.elixirCost > elixirBudget) return false;
+    if (selected.length >= MAX_GRID_CELLS) return false;
     selected.push(entry);
     selectedRosterIds.add(entry.id);
-    totalElixir += entry.hero.elixir;
+    totalElixir += entry.elixirCost;
     return true;
   }
 
-  // Phase 1: Role guarantees (unless aggressive)
+  // --- Phase 1: Role guarantees ---
   if (playstyle !== "aggressive") {
     const bestTank = scoredHeroes.find(h => h.hero.class === "Tank");
     if (bestTank) tryAdd(bestTank);
@@ -733,27 +748,28 @@ function optimizeLineup(
     if (extra) tryAdd(extra);
   }
 
-  // Phase 2: Fill by score — keep adding until budget is as full as possible
-  for (const hero of scoredHeroes) {
-    if (selected.length >= MAX_TROOPS) break;
-    if (selectedRosterIds.has(hero.id)) continue;
-    if (totalElixir + hero.hero.elixir > elixirBudget) continue;
-    tryAdd(hero);
+  // --- Phase 2: Fill by efficiency ---
+  for (const entry of scoredHeroes) {
+    if (selected.length >= MAX_GRID_CELLS) break;
+    if (selectedRosterIds.has(entry.id)) continue;
+    if (totalElixir + entry.elixirCost > elixirBudget) continue;
+    tryAdd(entry);
   }
 
-  // Phase 3: Second pass — try to fill remaining budget with cheaper troops we skipped
-  const remaining = elixirBudget - totalElixir;
-  if (remaining > 0 && selected.length < MAX_TROOPS) {
+  // --- Phase 3: Squeeze — fill remaining budget with cheapest troops ---
+  const budgetLeft = elixirBudget - totalElixir;
+  if (budgetLeft > 0 && selected.length < MAX_GRID_CELLS) {
     const cheapCandidates = scoredHeroes
-      .filter(h => !selectedRosterIds.has(h.id) && h.hero.elixir <= remaining)
-      .sort((a, b) => b.score - a.score);
-    for (const hero of cheapCandidates) {
-      if (selected.length >= MAX_TROOPS) break;
-      if (totalElixir + hero.hero.elixir > elixirBudget) continue;
-      tryAdd(hero);
+      .filter(h => !selectedRosterIds.has(h.id) && h.elixirCost <= budgetLeft)
+      .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
+    for (const entry of cheapCandidates) {
+      if (selected.length >= MAX_GRID_CELLS) break;
+      if (totalElixir + entry.elixirCost > elixirBudget) continue;
+      tryAdd(entry);
     }
   }
 
+  // --- Formation suggestion ---
   let suggestedFormation = formation;
   if (mode === "Arena" && !formation) {
     if (enemyFormation === "Dash") suggestedFormation = "Backstab";
@@ -763,32 +779,34 @@ function optimizeLineup(
     else suggestedFormation = "Dash";
   }
 
-  // Assign grid positions — center-outward column fill
+  // --- Grid placement — supports first, center-outward ---
   const GRID_ROWS = 7;
   const GRID_COLS = 7;
-  const colOrder = [3, 4, 2, 5, 1, 6, 0]; // center outward (0-indexed)
+  const colOrder = [3, 4, 2, 5, 1, 6, 0];
 
-  // Row ranges per placement
   const rowRanges: Record<string, number[]> = {
     Front: [0, 1],
     Mid: [2, 3, 4],
     Back: [5, 6],
   };
 
-  // Row 7 (index 6) only allows cols 2,3,4
-  function isCellLocked(row: number, col: number): boolean {
-    if (row === 6) return col < 2 || col > 4;
-    return false;
-  }
-
   const gridOccupied: boolean[][] = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(false));
   const gridPlacements: { row: number; col: number; heroName: string; heroId: number; rosterId: number; level: number; rarity: string; heroClass: string; elixir: number }[] = [];
 
-  // Group selected by normalized placement
+  // Group by normalized placement, sort supports first within each group
   const byPlacement: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
   for (const entry of selected) {
     const pos = normalizePlacement(entry.hero.placement);
     byPlacement[pos].push(entry);
+  }
+  // Place supports first (center), then by finalScore descending
+  for (const pos of ["Front", "Mid", "Back"]) {
+    byPlacement[pos].sort((a: any, b: any) => {
+      const aSupport = a.hero.class === "Support" ? 1 : 0;
+      const bSupport = b.hero.class === "Support" ? 1 : 0;
+      if (aSupport !== bSupport) return bSupport - aSupport;
+      return b.finalScore - a.finalScore;
+    });
   }
 
   const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
@@ -796,7 +814,6 @@ function optimizeLineup(
   for (const pos of ["Front", "Mid", "Back"] as const) {
     const rows = rowRanges[pos];
     const entries = byPlacement[pos];
-    let placed = 0;
     for (const entry of entries) {
       let didPlace = false;
       for (const col of colOrder) {
@@ -812,10 +829,9 @@ function optimizeLineup(
             level: entry.level,
             rarity: entry.hero.rarity,
             heroClass: entry.hero.class,
-            elixir: entry.hero.elixir,
+            elixir: entry.elixirCost,
           });
           didPlace = true;
-          placed++;
           break;
         }
         if (didPlace) break;
@@ -824,34 +840,32 @@ function optimizeLineup(
     }
   }
 
+  // --- Reasoning with power & efficiency ---
   const reasoning = selected.map(entry => {
     const reasons: string[] = [];
-    if (entry.level >= 7) reasons.push("High level (" + entry.level + ")");
-    // Ability unlock reasoning — parse actual unlock levels from descriptions
-    let r2Unlock = 6, r3Unlock = 7;
-    if (entry.hero.level6Upgrade) { const m = entry.hero.level6Upgrade.match(/Lv\.?\s*(\d+)/i); if (m) r2Unlock = parseInt(m[1]); }
-    if (entry.hero.level7Upgrade) { const m = entry.hero.level7Upgrade.match(/Lv\.?\s*(\d+)/i); if (m) r3Unlock = parseInt(m[1]); }
-    const has2nd = entry.hero.level6Upgrade && entry.level >= r2Unlock;
-    const has3rd = entry.hero.level7Upgrade && entry.level >= r3Unlock;
-    if (has2nd && has3rd) reasons.push("All abilities unlocked");
-    else if (has2nd) reasons.push("2nd ability unlocked, 3rd needs Lv." + r3Unlock);
-    else if (entry.hero.level6Upgrade && !has2nd) reasons.push("2nd ability locked (needs Lv." + r2Unlock + ")");
+    const power = entry.hp + entry.atk;
+    reasons.push(`Power ${power.toLocaleString()} (${entry.hp} HP + ${entry.atk} ATK)`);
+    reasons.push(`Efficiency: ${entry.efficiency.toFixed(1)} score/elixir`);
+    if (entry.level >= 7) reasons.push("High merge level (" + entry.level + ")");
+    if (entry.has2nd && entry.has3rd) reasons.push("All abilities unlocked");
+    else if (entry.has2nd) reasons.push("2nd ability unlocked, 3rd needs Lv." + entry.ab3Unlock);
+    else if (entry.hero.level6Upgrade && !entry.has2nd) reasons.push("2nd ability locked (needs Lv." + entry.ab2Unlock + ")");
     if (entry.hero.tier === "S") reasons.push("S-tier hero");
-    if (entry.hero.tier === "A") reasons.push("A-tier hero");
-    if (mode === "Arena" && formation === "Backstab" && entry.hero.name === "Bomber") reasons.push("Bomber is essential for Backstab formation");
-    if (mode === "Clan Hunt" && (entry.hero.class === "Marksman" || entry.hero.class === "Assassin")) reasons.push("DPS priority for single-target boss damage");
-    if (playstyle === "aggressive" && (entry.hero.class === "Marksman" || entry.hero.class === "Mage" || entry.hero.class === "Assassin")) reasons.push("Aggressive pick: high burst DPS");
-    if (playstyle === "defensive" && (entry.hero.class === "Tank" || entry.hero.class === "Support")) reasons.push("Defensive pick: strong survivability");
-    if (reasons.length === 0) reasons.push("Best available " + entry.hero.class + " (score: " + entry.score.toFixed(0) + ")");
+    else if (entry.hero.tier === "A") reasons.push("A-tier hero");
+    if (mode === "Arena" && formation === "Backstab" && entry.hero.name === "Bomber") reasons.push("Essential for Backstab formation");
+    if (mode === "Clan Hunt" && (entry.hero.class === "Marksman" || entry.hero.class === "Assassin")) reasons.push("DPS priority for boss damage");
+    if (playstyle === "aggressive" && ["Marksman", "Mage", "Assassin"].includes(entry.hero.class)) reasons.push("Aggressive: high burst DPS");
+    if (playstyle === "defensive" && ["Tank", "Support"].includes(entry.hero.class)) reasons.push("Defensive: strong survivability");
     return {
       heroId: entry.hero.id,
       heroName: entry.hero.name,
       placement: entry.hero.placement,
       reasons: reasons.join("; "),
-      score: entry.score,
+      score: entry.finalScore,
     };
   });
 
+  // --- Counter-pick advice ---
   let counterPickAdvice = "";
   if (mode === "Arena" && enemyFormation) {
     const counterMap: Record<string, string> = {
@@ -863,21 +877,12 @@ function optimizeLineup(
     counterPickAdvice = counterMap[enemyFormation] || "Standard formation recommended.";
   }
 
-  const totalPower = selected.reduce((sum, entry) => {
-    return sum + getHeroPower(entry.hero.stats, entry.level);
-  }, 0);
+  const totalPower = selected.reduce((sum, entry) => sum + entry.hp + entry.atk, 0);
 
-  // Synergy engine
+  // --- Synergy engine ---
   const synergies: { type: string; title: string; description: string; heroes: string[] }[] = [];
   const selectedNames = new Set(selected.map(e => e.hero.name));
   const selectedHeroes = selected.map(e => e.hero);
-
-  // Helper: deduplicate hero names, showing "Name x2" for duplicates
-  function dedupeNames(names: string[]): string[] {
-    const counts: Record<string, number> = {};
-    for (const n of names) counts[n] = (counts[n] || 0) + 1;
-    return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
-  }
 
   // 1. Attribute synergy: 3+ of same attribute
   const attrCounts: Record<string, string[]> = {};
@@ -972,7 +977,7 @@ function optimizeLineup(
       level: e.level,
       placement: e.hero.placement,
       class: e.hero.class,
-      elixir: e.hero.elixir,
+      elixir: e.elixirCost,
       rarity: e.hero.rarity,
     })),
     formation: suggestedFormation,
