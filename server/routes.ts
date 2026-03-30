@@ -242,6 +242,32 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/roster/bulk", (req, res) => {
+    try {
+      const user = getUserFromRequest(req);
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const { troops } = req.body;
+      if (!Array.isArray(troops) || troops.length === 0) {
+        return res.status(400).json({ message: "troops array required" });
+      }
+      const added: any[] = [];
+      for (const t of troops) {
+        const hero = storage.getHeroById(t.heroId);
+        if (!hero) continue;
+        const level = Math.min(9, Math.max(1, t.level || 1));
+        const qty = Math.min(20, Math.max(1, t.quantity || 1));
+        for (let i = 0; i < qty; i++) {
+          const parsed = insertRosterSchema.parse({ heroId: t.heroId, level, userId: user.id });
+          const entry = storage.addToRoster(parsed);
+          added.push(entry);
+        }
+      }
+      res.json({ added: added.length });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
   app.patch("/api/roster/:id", (req, res) => {
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
