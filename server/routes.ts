@@ -407,7 +407,7 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited optimizations.", generationsUsed: user.generationsUsed, limit: effectiveGenLimit });
     }
 
-    const { mode, formation, enemyFormation, enemyHeroIds, elixirBudget, huntingBoss, playstyle, buildType } = req.body;
+    const { mode, formation, enemyFormation, enemyHeroIds, enemyHeroNames, elixirBudget, huntingBoss, playstyle, buildType } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
@@ -416,7 +416,8 @@ export async function registerRoutes(
     }
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
-    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle, buildType);
+    const validEnemyNames = Array.isArray(enemyHeroNames) ? enemyHeroNames.filter((n: any) => typeof n === "string") : [];
+    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle, buildType, validEnemyNames);
 
     // Increment generation counter for non-premium, non-admin users
     if (!user.isPremium && !user.isAdmin) {
@@ -837,7 +838,8 @@ function optimizeLineup(
   enemyHeroIds?: number[],
   huntingBoss?: string,
   playstyle?: string,
-  buildType?: string
+  buildType?: string,
+  enemyHeroNames?: string[]
 ) {
   const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
   const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
@@ -872,7 +874,64 @@ function optimizeLineup(
       if (enemyFormation === "Split" && formation === "Dash") counterMult = 1.1;
     }
 
-    const finalScore = (baseScore + abilityBonus) * modeMult * styleMult * buildMult * tierMult * counterMult;
+    // Enemy troop counter-pick bonus
+    let enemyCounterMult = 1.0;
+    if (mode === "Arena" && enemyHeroNames && enemyHeroNames.length > 0) {
+      const enemySet = new Set(enemyHeroNames.map(n => n.toLowerCase()));
+
+      // Check if hero's attribute counters any enemy weakness
+      for (const enemyName of enemyHeroNames) {
+        const enemyHero = allHeroes.find((h: any) => h.name.toLowerCase() === enemyName.toLowerCase());
+        if (enemyHero && enemyHero.weakness && hero.attribute === enemyHero.weakness) {
+          enemyCounterMult *= 1.15; // attribute advantage
+          break; // only count once
+        }
+      }
+
+      // Counter Frost Queen with Outflank-friendly troops
+      if (enemySet.has("frost queen")) {
+        if (hero.name === "Paladin") enemyCounterMult *= 1.4;
+        if (hero.class === "Tank") enemyCounterMult *= 1.1; // tanks survive Blizzard
+      }
+
+      // Counter Bomber with spread / tanky troops
+      if (enemySet.has("bomber")) {
+        if (hero.defense === "High" || hero.defense === "Very High" || hero.defense === "Medium") enemyCounterMult *= 1.1;
+        if (hero.class === "Tank") enemyCounterMult *= 1.1;
+      }
+
+      // If enemy is tank-heavy, boost armor-piercing DPS
+      const enemyTankCount = enemyHeroNames.filter(n => {
+        const h = allHeroes.find((a: any) => a.name.toLowerCase() === n.toLowerCase());
+        return h && h.class === "Tank";
+      }).length;
+      if (enemyTankCount >= 3) {
+        if (["Marksman", "Mage", "Assassin"].includes(hero.class)) enemyCounterMult *= 1.2;
+      }
+
+      // If enemy is DPS-heavy (lots of backline), boost assassins and backstab troops
+      const enemyDpsCount = enemyHeroNames.filter(n => {
+        const h = allHeroes.find((a: any) => a.name.toLowerCase() === n.toLowerCase());
+        return h && (h.class === "Marksman" || h.class === "Mage");
+      }).length;
+      if (enemyDpsCount >= 3) {
+        if (hero.name === "Ghost Assassin") enemyCounterMult *= 1.4;
+        if (hero.name === "Darkmoon Queen") enemyCounterMult *= 1.3; // silences backline
+        if (hero.class === "Assassin") enemyCounterMult *= 1.2;
+      }
+
+      // Counter specific S-tier threats
+      if (enemySet.has("radiant warrior")) {
+        // Need burst to break through shield
+        if (hero.damageType === "Area") enemyCounterMult *= 1.1;
+      }
+      if (enemySet.has("oracle")) {
+        // Enemy has Oracle buff — need to overwhelm or silence
+        if (hero.name === "Darkmoon Queen") enemyCounterMult *= 1.3;
+      }
+    }
+
+    const finalScore = (baseScore + abilityBonus) * modeMult * styleMult * buildMult * tierMult * counterMult * enemyCounterMult;
     const elixirCost = hero.elixir || 1;
     const efficiency = finalScore / elixirCost;
 
@@ -1123,6 +1182,75 @@ function optimizeLineup(
     counterPickAdvice = counterMap[enemyFormation] || "Standard formation recommended.";
   }
 
+  // --- Enemy analysis ---
+  let enemyAnalysis: { summary: string; advice: string[] } | null = null;
+  if (mode === "Arena" && enemyHeroNames && enemyHeroNames.length > 0) {
+    const enemyClasses: Record<string, number> = {};
+    const enemyAttributes: Record<string, number> = {};
+    const enemySet = new Set(enemyHeroNames.map(n => n.toLowerCase()));
+
+    for (const enemyName of enemyHeroNames) {
+      const enemyHero = allHeroes.find((h: any) => h.name.toLowerCase() === enemyName.toLowerCase());
+      if (enemyHero) {
+        enemyClasses[enemyHero.class] = (enemyClasses[enemyHero.class] || 0) + 1;
+        enemyAttributes[enemyHero.attribute] = (enemyAttributes[enemyHero.attribute] || 0) + 1;
+      }
+    }
+
+    // Build summary
+    const classParts: string[] = [];
+    for (const [cls, count] of Object.entries(enemyClasses)) {
+      classParts.push(`${count} ${cls}${count > 1 ? "s" : ""}`);
+    }
+    const summary = `${enemyHeroNames.length} enemy troops scouted: ${classParts.join(", ")}`;
+
+    // Build advice
+    const advice: string[] = [];
+    if (enemySet.has("frost queen")) {
+      advice.push("Enemy has Frost Queen — consider Outflank formation to reduce Blizzard clustering damage.");
+    }
+    if (enemySet.has("bomber")) {
+      advice.push("Enemy has Bombers — avoid clustering your back row. Consider Split formation to spread out.");
+    }
+    if (enemySet.has("oracle")) {
+      advice.push("Enemy has Oracle buff aura — try to silence or overwhelm quickly before buffs stack. Darkmoon Queen is strong here.");
+    }
+    if (enemySet.has("ghost assassin")) {
+      advice.push("Enemy has Ghost Assassin — protect your backline DPS. Place tanks or Pumpkin Guard to absorb the backstab.");
+    }
+    if (enemySet.has("radiant warrior")) {
+      advice.push("Enemy has Radiant Warrior shield — bring high burst AoE to break through the team shield quickly.");
+    }
+    if (enemySet.has("darkmoon queen")) {
+      advice.push("Enemy has Darkmoon Queen — your back-row mages/archers may be silenced. Bring front-line DPS or Warriors.");
+    }
+    if (enemySet.has("mist archer")) {
+      advice.push("Enemy has Mist Archer — expect AoE DoT and speed debuffs. Bring healers or high-HP troops to outlast it.");
+    }
+
+    // Composition-based advice
+    const enemyTanks = enemyClasses["Tank"] || 0;
+    const enemyDps = (enemyClasses["Marksman"] || 0) + (enemyClasses["Mage"] || 0) + (enemyClasses["Assassin"] || 0);
+    if (enemyTanks >= 3) {
+      advice.push("Enemy is tank-heavy — your lineup prioritizes armor-piercing DPS (Marksmen, Mages, Assassins) to break through.");
+    }
+    if (enemyDps >= 4) {
+      advice.push("Enemy is DPS-heavy — your lineup includes counter-assassins and front-line disruption to neutralize their backline.");
+    }
+
+    // Attribute-based advice
+    const dominantAttr = Object.entries(enemyAttributes).sort((a, b) => b[1] - a[1])[0];
+    if (dominantAttr && dominantAttr[1] >= 3) {
+      const weaknessMap: Record<string, string> = { Fire: "Water", Water: "Wind", Wood: "Fire", Wind: "Earth", Earth: "Wind" };
+      const counter = weaknessMap[dominantAttr[0]];
+      if (counter) {
+        advice.push(`Enemy has ${dominantAttr[1]}x ${dominantAttr[0]} troops — ${counter}-attribute troops deal bonus damage against them.`);
+      }
+    }
+
+    enemyAnalysis = { summary, advice };
+  }
+
   const totalPower = actualSelected.reduce((sum: number, entry: any) => sum + entry.hp + entry.atk, 0);
 
   // --- Synergy engine ---
@@ -1231,6 +1359,7 @@ function optimizeLineup(
     totalPower,
     reasoning,
     counterPickAdvice,
+    enemyAnalysis,
     placements,
     gridPlacements,
     synergies,

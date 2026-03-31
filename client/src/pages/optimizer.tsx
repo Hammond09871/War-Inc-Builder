@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock, Camera, Search, Eye, X, Users } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -29,6 +31,10 @@ export default function Optimizer() {
   const [result, setResult] = useState<any>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [paywallTrigger, setPaywallTrigger] = useState<string>("optimize");
+  const [enemyHeroNames, setEnemyHeroNames] = useState<string[]>([]);
+  const [scoutScreenshot, setScoutScreenshot] = useState<string | null>(null);
+  const [scoutSearch, setScoutSearch] = useState("");
+  const [scoutMode, setScoutMode] = useState<"quick" | "screenshot">("quick");
   const { toast } = useToast();
   const { user, refreshUser } = useAuth();
   const queryClient = useQueryClient();
@@ -50,6 +56,9 @@ export default function Optimizer() {
       const body: any = { mode, elixirBudget, playstyle: playstyle.toLowerCase(), buildType: buildType.toLowerCase() };
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
+      }
+      if (mode === "Arena" && enemyHeroNames.length > 0) {
+        body.enemyHeroNames = enemyHeroNames;
       }
       if (mode === "Hunting") {
         body.huntingBoss = huntingBoss;
@@ -286,6 +295,193 @@ export default function Optimizer() {
           <p className="text-[10px] text-muted-foreground">{BUILD_TYPE_INFO[buildType]?.description}</p>
         </div>
 
+        {/* Scout Enemy — Arena Only */}
+        {mode === "Arena" && heroes && heroes.length > 0 && (
+          <Card className="border-border/50" style={{ background: "#161924" }}>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5" /> Scout Enemy Lineup
+                </h3>
+                <div className="flex gap-1">
+                  <Button
+                    variant={scoutMode === "quick" ? "default" : "outline"}
+                    size="sm"
+                    className="text-[10px] h-6 px-2"
+                    onClick={() => setScoutMode("quick")}
+                  >
+                    <Search className="w-3 h-3 mr-1" /> Quick Select
+                  </Button>
+                  <Button
+                    variant={scoutMode === "screenshot" ? "default" : "outline"}
+                    size="sm"
+                    className="text-[10px] h-6 px-2"
+                    onClick={() => setScoutMode("screenshot")}
+                  >
+                    <Camera className="w-3 h-3 mr-1" /> Screenshot
+                  </Button>
+                </div>
+              </div>
+
+              {scoutMode === "quick" ? (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search enemy troops..."
+                      value={scoutSearch}
+                      onChange={(e) => setScoutSearch(e.target.value)}
+                      className="h-8 text-xs pl-8"
+                      style={{ background: "#1E2233" }}
+                    />
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-0.5 rounded border border-border/30 p-1.5" style={{ background: "#1E2233" }}>
+                    {heroes
+                      .filter(h => !scoutSearch || h.name.toLowerCase().includes(scoutSearch.toLowerCase()))
+                      .sort((a, b) => {
+                        const aSelected = enemyHeroNames.includes(a.name) ? 0 : 1;
+                        const bSelected = enemyHeroNames.includes(b.name) ? 0 : 1;
+                        if (aSelected !== bSelected) return aSelected - bSelected;
+                        return a.name.localeCompare(b.name);
+                      })
+                      .map(h => (
+                        <label
+                          key={h.id}
+                          className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={enemyHeroNames.includes(h.name)}
+                            onCheckedChange={(checked) => {
+                              if (checked) setEnemyHeroNames(prev => [...prev, h.name]);
+                              else setEnemyHeroNames(prev => prev.filter(n => n !== h.name));
+                            }}
+                          />
+                          <span className="text-[10px]" style={{ color: RARITY_COLORS[h.rarity] }}>{h.name}</span>
+                          <span className="text-[9px] text-muted-foreground ml-auto">{h.class}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {!scoutScreenshot ? (
+                    <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border/50 p-4 cursor-pointer hover:border-primary/40 transition-colors">
+                      <Camera className="w-6 h-6 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Upload opponent screenshot</span>
+                      <span className="text-[9px] text-muted-foreground/60">JPG, PNG — helps you identify enemy troops</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => setScoutScreenshot(ev.target?.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <img src={scoutScreenshot} alt="Enemy lineup" className="w-full max-h-40 object-contain rounded-md border border-border/30" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute top-1 right-1 h-6 w-6 p-0 bg-black/60 hover:bg-black/80 rounded-full"
+                          onClick={() => setScoutScreenshot(null)}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">Check the troops you can identify in the screenshot:</p>
+                    </div>
+                  )}
+                  {scoutScreenshot && (
+                    <div className="space-y-1">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Filter troops..."
+                          value={scoutSearch}
+                          onChange={(e) => setScoutSearch(e.target.value)}
+                          className="h-8 text-xs pl-8"
+                          style={{ background: "#1E2233" }}
+                        />
+                      </div>
+                      <div className="max-h-32 overflow-y-auto space-y-0.5 rounded border border-border/30 p-1.5" style={{ background: "#1E2233" }}>
+                        {heroes
+                          .filter(h => !scoutSearch || h.name.toLowerCase().includes(scoutSearch.toLowerCase()))
+                          .sort((a, b) => {
+                            const aSelected = enemyHeroNames.includes(a.name) ? 0 : 1;
+                            const bSelected = enemyHeroNames.includes(b.name) ? 0 : 1;
+                            if (aSelected !== bSelected) return aSelected - bSelected;
+                            return a.name.localeCompare(b.name);
+                          })
+                          .map(h => (
+                            <label
+                              key={h.id}
+                              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={enemyHeroNames.includes(h.name)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setEnemyHeroNames(prev => [...prev, h.name]);
+                                  else setEnemyHeroNames(prev => prev.filter(n => n !== h.name));
+                                }}
+                              />
+                              <span className="text-[10px]" style={{ color: RARITY_COLORS[h.rarity] }}>{h.name}</span>
+                              <span className="text-[9px] text-muted-foreground ml-auto">{h.class}</span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Selected enemy badges */}
+              {enemyHeroNames.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">
+                      <Users className="w-3 h-3 inline mr-1" />
+                      {enemyHeroNames.length} enemy troop{enemyHeroNames.length > 1 ? "s" : ""} identified
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-[10px] h-5 px-1.5 text-muted-foreground hover:text-destructive"
+                      onClick={() => { setEnemyHeroNames([]); setScoutScreenshot(null); }}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {enemyHeroNames.map(name => {
+                      const h = heroes.find(hero => hero.name === name);
+                      return (
+                        <Badge
+                          key={name}
+                          variant="outline"
+                          className="text-[9px] h-5 px-1.5 gap-1 cursor-pointer hover:bg-destructive/20"
+                          style={{ borderColor: `${RARITY_COLORS[h?.rarity || "Common"]}40`, color: RARITY_COLORS[h?.rarity || "Common"] }}
+                          onClick={() => setEnemyHeroNames(prev => prev.filter(n => n !== name))}
+                        >
+                          {name}
+                          <X className="w-2.5 h-2.5" />
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Optimize Button */}
         <div className="flex items-center gap-3">
           <Button
@@ -394,6 +590,31 @@ export default function Optimizer() {
                 </div>
               </div>
             </div>
+
+            {/* Enemy Analysis */}
+            {result.enemyAnalysis && (
+              <Card className="border-red-500/20" style={{ background: "rgba(220, 60, 60, 0.05)" }}>
+                <CardContent className="p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Eye className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-red-400">Enemy Lineup Analysis</p>
+                      <p className="text-xs text-muted-foreground">{result.enemyAnalysis.summary}</p>
+                      {result.enemyAnalysis.advice && result.enemyAnalysis.advice.length > 0 && (
+                        <ul className="space-y-0.5">
+                          {result.enemyAnalysis.advice.map((tip: string, i: number) => (
+                            <li key={i} className="text-[10px] text-muted-foreground flex items-start gap-1.5">
+                              <span className="text-primary mt-0.5">•</span>
+                              {tip}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Counter-pick advice */}
             {result.counterPickAdvice && (
