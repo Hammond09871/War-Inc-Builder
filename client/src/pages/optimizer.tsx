@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, HUNTING_BOSSES, CLAN_HUNT_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 const classIcons: Record<string, any> = { Warrior: Swords, Marksman: Crosshair, Mage: Wand2, Support: Heart, Tank: Shield, Assassin: Zap };
@@ -25,6 +25,7 @@ export default function Optimizer() {
   const [mode, setMode] = useState("Arena");
   const [enemyFormation, setEnemyFormation] = useState<string>("none");
   const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
+  const [clanHuntBoss, setClanHuntBoss] = useState<string>("Dragon Knight");
   const [elixirBudget, setElixirBudget] = useState(100);
   const [playstyle, setPlaystyle] = useState("Balanced");
   const [buildType, setBuildType] = useState("Mixed");
@@ -62,6 +63,9 @@ export default function Optimizer() {
       }
       if (mode === "Hunting") {
         body.huntingBoss = huntingBoss;
+      }
+      if (mode === "Clan Hunt") {
+        body.clanHuntBoss = clanHuntBoss;
       }
       const res = await apiRequest("POST", "/api/optimize", body);
       return res.json();
@@ -182,7 +186,7 @@ export default function Optimizer() {
           <Card className="border-border/50" style={{ background: "#161924" }}>
             <CardContent className="p-4 space-y-3">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {mode === "Arena" ? "Enemy Formation" : mode === "Hunting" ? "Hunting Boss" : "Options"}
+                {mode === "Arena" ? "Enemy Formation" : mode === "Hunting" ? "Hunting Boss" : mode === "Clan Hunt" ? "Clan Hunt Boss" : "Options"}
               </h3>
               {mode === "Arena" ? (
                 <>
@@ -215,6 +219,33 @@ export default function Optimizer() {
                   </Select>
                   {(() => {
                     const boss = HUNTING_BOSSES[huntingBoss as keyof typeof HUNTING_BOSSES];
+                    if (!boss) return null;
+                    return (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground">{boss.description}</p>
+                        <div className="flex gap-3 text-[10px]">
+                          <span><span className="text-green-400 font-medium">Weak to:</span> {boss.weakness}</span>
+                          <span><span className="text-red-400 font-medium">Resists:</span> {boss.resistances.join(", ")}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/70 italic">{boss.tips}</p>
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : mode === "Clan Hunt" ? (
+                <>
+                  <Select value={clanHuntBoss} onValueChange={setClanHuntBoss}>
+                    <SelectTrigger className="h-9 text-sm" style={{ background: "#1E2233" }} data-testid="select-clan-hunt-boss">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(CLAN_HUNT_BOSSES).map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {(() => {
+                    const boss = CLAN_HUNT_BOSSES[clanHuntBoss as keyof typeof CLAN_HUNT_BOSSES];
                     if (!boss) return null;
                     return (
                       <div className="space-y-1.5">

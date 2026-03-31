@@ -100,6 +100,33 @@ export const HUNTING_BOSSES = {
   }
 } as const;
 
+export const CLAN_HUNT_BOSSES = {
+  "Dragon Knight": {
+    name: "Dragon Knight",
+    description: "A heavily armored dragon rider guardian found in Clan War territories. Higher tower levels mean stronger Dragon Knights.",
+    attribute: "Fire",
+    weakness: "Physical",
+    resistances: ["Fire"],
+    tips: "Use Physical or Wind-attribute troops. Avoid Wood-attribute troops. Single-target DPS is key — focus fire on the knight, not the dragon."
+  },
+  "Naga Blade Master": {
+    name: "Naga Blade Master",
+    description: "A swift aquatic warrior wielding dual blades. Deals high single-target melee damage.",
+    attribute: "Water",
+    weakness: "Fire",
+    resistances: ["Water"],
+    tips: "Use Fire-attribute troops. Bring tanks to absorb melee attacks. Keep ranged DPS in back row — Naga targets nearest enemies."
+  },
+  "Venom Beetle": {
+    name: "Venom Beetle",
+    description: "A flying Wood-element creature with poison attacks. Deals area damage and poisons multiple troops.",
+    attribute: "Wood",
+    weakness: "Fire",
+    resistances: ["Wood"],
+    tips: "Use Fire-attribute troops. Spread formation to avoid AoE poison. Healers counter poison DoT."
+  }
+} as const;
+
 // Helper to get HP+ATK power from stats JSON at a given level
 export function getHeroPower(statsJson: string, level: number): number {
   try {

@@ -407,7 +407,7 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Free tier limit reached. Upgrade to PRO for unlimited optimizations.", generationsUsed: user.generationsUsed, limit: effectiveGenLimit });
     }
 
-    const { mode, formation, enemyFormation, enemyHeroIds, enemyHeroNames, elixirBudget, huntingBoss, playstyle, buildType } = req.body;
+    const { mode, formation, enemyFormation, enemyHeroIds, enemyHeroNames, elixirBudget, huntingBoss, clanHuntBoss, playstyle, buildType } = req.body;
     const roster = storage.getRoster(user.id);
     const allHeroes = storage.getAllHeroes();
 
@@ -417,7 +417,7 @@ export async function registerRoutes(
 
     const budget = typeof elixirBudget === "number" && elixirBudget > 0 ? elixirBudget : 100;
     const validEnemyNames = Array.isArray(enemyHeroNames) ? enemyHeroNames.filter((n: any) => typeof n === "string") : [];
-    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle, buildType, validEnemyNames);
+    const result = optimizeLineup(roster, allHeroes, mode, budget, formation, enemyFormation, enemyHeroIds, huntingBoss, playstyle, buildType, validEnemyNames, clanHuntBoss);
 
     // Increment generation counter for non-premium, non-admin users
     if (!user.isPremium && !user.isAdmin) {
@@ -583,7 +583,7 @@ function dedupeNames(names: string[]): string[] {
 }
 
 
-function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string, enemyFormation?: string): number {
+function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string, enemyFormation?: string, clanHuntBoss?: string): number {
   let mult = 1.0;
   
   switch(mode) {
@@ -775,6 +775,26 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
       if (hero.class === "Tank") mult *= 0.6;
       // Support is only valuable if it buffs damage
       if (hero.class === "Support" && !(hero.abilityDesc || "").toLowerCase().includes("attack")) mult *= 0.7;
+
+      // Boss-specific counters
+      if (clanHuntBoss === "Dragon Knight") {
+        if (hero.attribute === "Physical") mult *= 1.5;
+        if (hero.attribute === "Wind") mult *= 1.3;
+        if (hero.attribute === "Fire") mult *= 0.5; // resisted
+        if (hero.attribute === "Wood") mult *= 0.5; // weak to fire boss
+      }
+      if (clanHuntBoss === "Naga Blade Master") {
+        if (hero.attribute === "Fire") mult *= 1.5;
+        if (hero.attribute === "Water") mult *= 0.5; // resisted
+        if (hero.class === "Tank") mult *= 1.3; // need tanks for melee boss — overrides the 0.6 penalty partially
+      }
+      if (clanHuntBoss === "Venom Beetle") {
+        if (hero.attribute === "Fire") mult *= 1.5;
+        if (hero.attribute === "Wood") mult *= 0.5; // resisted
+        // Healers counter poison DoT
+        if (hero.abilityDesc && hero.abilityDesc.toLowerCase().includes("heal")) mult *= 1.3;
+        if (hero.name === "Woodland Guardian" || hero.name === "Wooden Wizard" || hero.name === "Grace Priest") mult *= 1.4;
+      }
       break;
     }
   }
@@ -839,7 +859,8 @@ function optimizeLineup(
   huntingBoss?: string,
   playstyle?: string,
   buildType?: string,
-  enemyHeroNames?: string[]
+  enemyHeroNames?: string[],
+  clanHuntBoss?: string
 ) {
   const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
   const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
@@ -861,7 +882,7 @@ function optimizeLineup(
     if (has3rd) abilityBonus += baseScore * 0.20;
 
     // Multiplicative multipliers
-    const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss, enemyFormation);
+    const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss, enemyFormation, clanHuntBoss);
     const styleMult = getPlaystyleMultiplier(hero, playstyle);
     const buildMult = getBuildTypeMultiplier(hero, buildType);
     const tierMult = tierWeight[hero.tier] || 1.0;

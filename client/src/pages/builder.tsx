@@ -16,7 +16,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { PaywallDialog } from "@/components/PaywallDialog";
-import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
+import { GAME_MODES, FORMATIONS, FORMATION_INFO, HUNTING_BOSSES, CLAN_HUNT_BOSSES, RARITY_COLORS, getHeroPower, PLAYSTYLES, PLAYSTYLE_INFO, BUILD_TYPES, BUILD_TYPE_INFO } from "@/lib/constants";
 import type { Hero, RosterWithHero, Lineup } from "@shared/schema";
 
 type PlacedHero = {
@@ -61,6 +61,7 @@ export default function LineupBuilder() {
   const [mode, setMode] = useState("Arena");
   const [formation, setFormation] = useState("Dash");
   const [huntingBoss, setHuntingBoss] = useState<string>("Twin-Dragon");
+  const [clanHuntBoss, setClanHuntBoss] = useState<string>("Dragon Knight");
   const [grid, setGrid] = useState<(PlacedHero | null)[][]>(makeEmptyGrid());
   const [selectingCell, setSelectingCell] = useState<{ row: number; col: number } | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -142,6 +143,7 @@ export default function LineupBuilder() {
         mode,
         formation: mode === "Arena" ? formation : undefined,
         huntingBoss: mode === "Hunting" ? huntingBoss : undefined,
+        clanHuntBoss: mode === "Clan Hunt" ? clanHuntBoss : undefined,
         elixirBudget: elixirLimit,
         playstyle: playstyle.toLowerCase(),
         buildType: buildType.toLowerCase(),
@@ -362,6 +364,27 @@ export default function LineupBuilder() {
                   className="text-xs h-7 px-3"
                   onClick={() => setHuntingBoss(b)}
                   data-testid={`button-boss-${b.toLowerCase().replace(/\s/g, "-")}`}
+                >
+                  {b}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Boss Selector (Clan Hunt only) */}
+        {mode === "Clan Hunt" && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-muted-foreground">Boss:</span>
+            <div className="flex gap-1.5">
+              {Object.keys(CLAN_HUNT_BOSSES).map((b) => (
+                <Button
+                  key={b}
+                  variant={clanHuntBoss === b ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs h-7 px-3"
+                  onClick={() => setClanHuntBoss(b)}
+                  data-testid={`button-clan-hunt-boss-${b.toLowerCase().replace(/\s/g, "-")}`}
                 >
                   {b}
                 </Button>
@@ -595,6 +618,38 @@ export default function LineupBuilder() {
                         <span className="text-red-400 font-medium">Resists:</span>
                         <p className="text-foreground">{boss.resistances.join(", ")}</p>
                       </div>
+                    </div>
+                    <div className="text-[10px] border-t border-border/30 pt-2 mt-1">
+                      <span className="text-yellow-400 font-medium">Tips: </span>
+                      <span className="text-muted-foreground">{boss.tips}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Boss Info (Clan Hunt only) */}
+            {mode === "Clan Hunt" && (() => {
+              const boss = CLAN_HUNT_BOSSES[clanHuntBoss as keyof typeof CLAN_HUNT_BOSSES];
+              if (!boss) return null;
+              return (
+                <Card className="border-border/50" style={{ background: "#161924" }}>
+                  <CardContent className="p-3 space-y-2">
+                    <h3 className="text-xs font-semibold text-primary">{boss.name}</h3>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">{boss.description}</p>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <span className="text-muted-foreground font-medium">Attribute:</span>
+                        <p className="text-foreground">{boss.attribute}</p>
+                      </div>
+                      <div>
+                        <span className="text-green-400 font-medium">Weakness:</span>
+                        <p className="text-foreground">{boss.weakness}</p>
+                      </div>
+                    </div>
+                    <div className="text-[10px]">
+                      <span className="text-red-400 font-medium">Resists:</span>
+                      <span className="text-foreground ml-1">{boss.resistances.join(", ")}</span>
                     </div>
                     <div className="text-[10px] border-t border-border/30 pt-2 mt-1">
                       <span className="text-yellow-400 font-medium">Tips: </span>
