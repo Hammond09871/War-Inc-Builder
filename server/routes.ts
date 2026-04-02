@@ -1115,10 +1115,10 @@ function optimizeLineup(
   const guaranteedIds = new Set(guaranteedPicks.map(e => e.id));
   const guaranteedElixir = guaranteedPicks.reduce((sum, e) => sum + e.elixirCost, 0);
 
-  // === SELECTION ALGORITHM v4 ===
-  // The goal: Fill 42 cells, stay at or under elixir budget, maximize power.
-  // Think of it like packing a bag: fit as many good items as possible,
-  // but if a big item means you can't fill the bag, swap it for smaller ones.
+  // === SELECTION ALGORITHM v5 ===
+  // Priority 1: Best possible lineup for the goal (mode + playstyle)
+  // Priority 2: Stay within elixir budget
+  // Priority 3: Fill the grid as much as possible — but never add a weak troop just to fill a cell
 
   const selected: any[] = [];
   const selectedRosterIds = new Set<number>();
@@ -1202,12 +1202,16 @@ function optimizeLineup(
       candidateElixir -= removed.elixirCost;
     }
 
-    // Step 4: If grid has room left after fitting budget, add more cheap troops
-    if (candidates.length < cellsToFill) {
+    // Step 4: If grid has room AND budget left, add more troops — but only if they're decent
+    // Don't pad the grid with trash troops. A troop must have at least 20% of the average score to be worth adding.
+    if (candidates.length < cellsToFill && candidates.length > 0) {
+      const avgScore = candidates.reduce((s, e) => s + e.finalScore, 0) / candidates.length;
+      const minScoreThreshold = avgScore * 0.2; // troop must be at least 20% of average quality
+      
       const usedIds = new Set(candidates.map(c => c.id));
       const extras = byScore
-        .filter(e => !usedIds.has(e.id))
-        .sort((a, b) => a.elixirCost - b.elixirCost || b.finalScore - a.finalScore);
+        .filter(e => !usedIds.has(e.id) && e.finalScore >= minScoreThreshold)
+        .sort((a, b) => b.finalScore - a.finalScore); // best first, not cheapest
       for (const entry of extras) {
         if (candidates.length >= cellsToFill) break;
         if (candidateElixir + entry.elixirCost > elixirBudget) continue;
