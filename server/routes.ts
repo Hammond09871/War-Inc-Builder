@@ -1245,22 +1245,36 @@ function optimizeLineup(
   const gridPlacements: { row: number; col: number; heroName: string; heroId: number; rosterId: number; level: number; rarity: string; heroClass: string; elixir: number }[] = [];
 
   // Categorize selected troops by role for placement priority
+  // Key insight from research: high-value DPS troops should be NEAR supports (Oracle/buffers)
+  // to receive aura buffs. Only pure tanks go in the front wall.
   const toPlace = {
-    tanks: [] as any[],
-    supports: [] as any[],
-    midDPS: [] as any[],
-    backRanged: [] as any[],
+    tanks: [] as any[],        // Pure tanks → rows 0-1 (front wall)
+    coreDPS: [] as any[],      // High-value DPS that need to be near supports → rows 2-3
+    supports: [] as any[],     // Oracles, buffers → rows 2-3 center
+    midDPS: [] as any[],       // Other mid-row troops → rows 3-4
+    backRanged: [] as any[],   // Ranged DPS → rows 4-5
     other: [] as any[],
   };
+
+  // Identify high-value DPS Mythics/Legendaries that should be near supports
+  const coreDPSNames = new Set(["Frost Queen", "Mist Archer", "Blazeking", "Nine Tailed Fox",
+    "Venospore Killer", "Storm Maiden", "Firepower Vanguard", "Bone Marksman",
+    "Jungle Ranger", "Darkmoon Queen", "Tide Lord", "Ripple Wizard"]);
 
   for (const entry of selected) {
     const cls = entry.hero.class;
     const placement = normalizePlacement(entry.hero.placement);
+    const name = entry.hero.name;
 
-    if (cls === "Tank" || (cls === "Warrior" && placement === "Front")) {
+    // High-value DPS troops go near supports for buff coverage
+    if (coreDPSNames.has(name)) {
+      toPlace.coreDPS.push(entry);
+    } else if (cls === "Tank") {
       toPlace.tanks.push(entry);
     } else if (cls === "Support") {
       toPlace.supports.push(entry);
+    } else if (cls === "Warrior" && placement === "Front") {
+      toPlace.tanks.push(entry); // front-row warriors act as tanks
     } else if (placement === "Mid" || cls === "Mage") {
       toPlace.midDPS.push(entry);
     } else if (placement === "Back" || cls === "Marksman") {
@@ -1322,6 +1336,17 @@ function optimizeLineup(
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
       const overflow = findOpenCell([3, 4], centerOut);
+      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    }
+  }
+
+  // 2b. Place CORE DPS in rows 2-3 ADJACENT to supports (for buff coverage)
+  // These are your Mythic DPS troops that need to be within Oracle/Melody Weaver aura range
+  for (const entry of toPlace.coreDPS) {
+    const cell = findOpenCell([2, 3, 1, 4], centerOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+    else {
+      const overflow = findOpenCell([4, 5], centerOut);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
