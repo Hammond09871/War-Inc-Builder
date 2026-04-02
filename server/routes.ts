@@ -941,7 +941,7 @@ function optimizeLineup(
   clanHuntBoss?: string
 ) {
   const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
-  const tierWeight: Record<string, number> = { SS: 1.5, S: 1.3, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
+  const tierWeight: Record<string, number> = { SS: 1.6, S: 1.35, A: 1.15, B: 1.0, C: 0.75, D: 0.45 };
 
   // Override tiers based on confirmed YouTube channel rankings (April 2026)
   // Sources: War Inc Rising Update channel + Klown Kollege channel
@@ -1206,7 +1206,7 @@ function optimizeLineup(
     // Don't pad the grid with trash troops. A troop must have at least 20% of the average score to be worth adding.
     if (candidates.length < cellsToFill && candidates.length > 0) {
       const avgScore = candidates.reduce((s, e) => s + e.finalScore, 0) / candidates.length;
-      const minScoreThreshold = avgScore * 0.2; // troop must be at least 20% of average quality
+      const minScoreThreshold = avgScore * 0.4; // troop must be at least 40% of average quality — no trash padding
       
       const usedIds = new Set(candidates.map(c => c.id));
       const extras = byScore
