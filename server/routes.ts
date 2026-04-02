@@ -694,9 +694,31 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
       if (enemyFormation === "Split") {
         if (hero.damageType === "Area") mult *= 1.3; // AoE punishes split armies
       }
+
+      // Control/CC troops win Arena — stuns/slows dominate
+      const ccTroops: Record<string, number> = {
+        "Darkmoon Queen": 1.4,
+        "Ursa Champion": 1.3,
+        "Frost Queen": 1.3,
+        "Barbarian Tyrant": 1.3,
+        "Gryphon Knight": 1.25,
+        "Bomber": 1.2,
+        "Goblin Chef": 1.15,
+        "Snowball Thrower": 1.15,
+        "Geomancer": 1.15,
+      };
+      if (ccTroops[hero.name]) mult *= ccTroops[hero.name];
+
+      // Generic CC bonus for any troop with stun/slow in ability description
+      if (hero.abilityDesc) {
+        const ccDesc = hero.abilityDesc.toLowerCase();
+        if (ccDesc.includes("stun") || ccDesc.includes("slow") || ccDesc.includes("knockback") || ccDesc.includes("prevents")) {
+          mult *= 1.1;
+        }
+      }
       break;
     }
-    
+
     case "Adventure": {
       // AoE is strongly preferred for wave clearing
       if (hero.damageType === "Area") mult *= 1.5;
@@ -877,6 +899,16 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
     mult *= 1.2; // All buffers get a baseline 20% boost in every mode
   }
 
+  // Universal healer bonus — specific healing troops extend army lifetime in every mode
+  const healerNames = ["Woodland Guardian", "Wooden Wizard", "Grace Priest", "Seraph"];
+  if (healerNames.includes(hero.name)) {
+    mult *= 1.2; // named healer bonus
+  }
+  // Also check ability description for healing keywords
+  if (hero.abilityDesc && (hero.abilityDesc.toLowerCase().includes("heal") || hero.abilityDesc.toLowerCase().includes("restore health"))) {
+    mult *= 1.1;
+  }
+
   return mult;
 }
 
@@ -968,7 +1000,19 @@ function optimizeLineup(
     const hero = entry.hero;
     const hp = (() => { try { const s = JSON.parse(hero.stats); return s[String(entry.level)]?.hp || 0; } catch { return 0; } })();
     const atk = getHeroAtk(hero.stats, entry.level);
-    const baseScore = hp + atk * 3;
+
+    // Playstyle-dependent base score
+    let baseScore: number;
+    switch (playstyle?.toLowerCase()) {
+      case "aggressive":
+        baseScore = hp + (atk * 3); // All-in on damage
+        break;
+      case "defensive":
+        baseScore = (hp * 2) + (atk * 1.5); // Survivability first
+        break;
+      default: // balanced
+        baseScore = (hp * 1.5) + (atk * 2); // Balanced — slight ATK favor
+    }
 
     // Ability bonuses as % of baseScore
     const ab2Unlock = parseAbilityUnlock(hero.level6Upgrade, 6);
@@ -1313,67 +1357,64 @@ function optimizeLineup(
     return null;
   }
 
-  // Column orders for different placement priorities
-  const centerOut = [3, 4, 2, 5, 1, 6, 0];  // Center columns first (for supports/buffers)
-  const wallFill = [3, 2, 4, 1, 5, 0, 6];   // Tight wall for tanks
-  const spreadOut = [0, 6, 1, 5, 2, 4, 3];   // Spread for ranged (cover width)
+  // Spread patterns: distribute troops with 1-2 cell gaps across full width
+  const spreadEven = [0, 3, 6, 1, 4, 2, 5];   // Spread across full width
+  const spreadCenter = [3, 0, 6, 2, 5, 1, 4];  // Center first but then spread wide
 
-  // 1. Place TANKS in rows 0-1 (dense wall, center out), overflow to rows 2-3
+  // 1. Place TANKS in rows 0-1 (spread wall across full width)
   for (const entry of toPlace.tanks) {
-    const cell = findOpenCell([0, 1], wallFill);
+    const cell = findOpenCell([0, 1], spreadEven);
     if (cell) {
       placeEntry(entry, cell[0], cell[1]);
     } else {
-      // Overflow tanks to rows 2-3 (still in front half, NOT back rows)
-      const overflow = findOpenCell([2, 3], wallFill);
+      const overflow = findOpenCell([2, 3], spreadEven);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
-  // 2. Place SUPPORTS in rows 2-3, CENTER columns (Oracle/buffers need center for aura)
+  // 2. Place SUPPORTS in rows 2-3, center-first spread (Oracle aura from center)
   for (const entry of toPlace.supports) {
-    const cell = findOpenCell([2, 3], centerOut);
+    const cell = findOpenCell([2, 3], spreadCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([3, 4], centerOut);
+      const overflow = findOpenCell([3, 4], spreadCenter);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
-  // 2b. Place CORE DPS in rows 2-3 ADJACENT to supports (for buff coverage)
-  // These are your Mythic DPS troops that need to be within Oracle/Melody Weaver aura range
+  // 2b. Place CORE DPS in rows 3-4 (behind supports where they survive longer)
   for (const entry of toPlace.coreDPS) {
-    const cell = findOpenCell([2, 3, 1, 4], centerOut);
+    const cell = findOpenCell([3, 4, 2, 5], spreadCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([4, 5], centerOut);
+      const overflow = findOpenCell([5, 2], spreadCenter);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
-  // 3. Place MID DPS in rows 2-4, overflow to 4-5
+  // 3. Place MID DPS in rows 3-4, overflow to 5
   for (const entry of toPlace.midDPS) {
-    const cell = findOpenCell([2, 3, 4], centerOut);
+    const cell = findOpenCell([3, 4, 2], spreadCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([4, 5], centerOut);
+      const overflow = findOpenCell([5, 2], spreadCenter);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
-  // 4. Place BACK RANGED in rows 4-5, overflow to row 3
+  // 4. Place BACK RANGED in rows 4-5 (spread for coverage)
   for (const entry of toPlace.backRanged) {
-    const cell = findOpenCell([4, 5], spreadOut);
+    const cell = findOpenCell([4, 5], spreadEven);
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([3, 2], spreadOut);
+      const overflow = findOpenCell([3, 2], spreadEven);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
   // 5. Place OTHER troops — fill mid first, then edges
   for (const entry of toPlace.other) {
-    const cell = findOpenCell([2, 3, 4, 1, 5, 0], centerOut);
+    const cell = findOpenCell([2, 3, 4, 1, 5, 0], spreadCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
   }
 
@@ -1385,7 +1426,7 @@ function optimizeLineup(
     let preferredRows = [2, 3, 4, 1, 5, 0];
     if (cls === "Tank" || cls === "Warrior") preferredRows = [0, 1, 2, 3, 4, 5];
     else if (cls === "Marksman" || cls === "Mage" || cls === "Archer") preferredRows = [5, 4, 3, 2, 1, 0];
-    const cell = findOpenCell(preferredRows, centerOut);
+    const cell = findOpenCell(preferredRows, spreadCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
   }
 
