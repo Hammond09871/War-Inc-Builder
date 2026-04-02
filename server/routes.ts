@@ -582,6 +582,37 @@ function dedupeNames(names: string[]): string[] {
   return Object.entries(counts).map(([name, count]) => count > 1 ? `${name} x${count}` : name);
 }
 
+// Identify troops that provide healing (restore HP to allies)
+function isHealer(hero: any): boolean {
+  const healerNames = [
+    "Wooden Wizard",     // Area Heal — House of Life: restore health to all allies
+    "Grace Priest",      // Single Heal — Divine Heal: heal multiple random allies
+    "Woodland Guardian", // Sylvan Aegis: heal all allies within medium area
+    "Goblin Shaman",     // Arcane Regeneration: restore health to allies
+  ];
+  if (healerNames.includes(hero.name)) return true;
+  // Also catch any troop with heal/restore in damageType or ability description
+  if (hero.damageType && (hero.damageType.toLowerCase().includes("heal"))) return true;
+  if (hero.abilityDesc && (hero.abilityDesc.toLowerCase().includes("heal all allies") || hero.abilityDesc.toLowerCase().includes("restore") && hero.abilityDesc.toLowerCase().includes("health"))) return true;
+  return false;
+}
+
+// Identify troops that provide team-wide buffs (ATK, speed, shields, energy)
+function isBuffer(hero: any): boolean {
+  const bufferNames = [
+    "Oracle",            // Divine Blessing: stacking ATK buffs to allies
+    "Melody Weaver",     // Heroic Anthem: ATK speed bonus to allies
+    "Starlight Apostle", // Stellar Canticle: ATK bonus to allies
+    "Ripple Wizard",     // Aqua Revival: energy to allies
+    "Radiant Warrior",   // Radiant Aegis: shields to allies
+  ];
+  if (bufferNames.includes(hero.name)) return true;
+  // Also catch troops with Buff damageType
+  if (hero.damageType === "Buff") return true;
+  // Catch troops whose ability grants buffs to allies (not self-buffs)
+  if (hero.abilityDesc && hero.abilityDesc.toLowerCase().includes("buff") && hero.abilityDesc.toLowerCase().includes("allies")) return true;
+  return false;
+}
 
 function getModeMultiplier(hero: any, mode: string, formation?: string, huntingBoss?: string, enemyFormation?: string, clanHuntBoss?: string): number {
   let mult = 1.0;
@@ -798,7 +829,17 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
       break;
     }
   }
-  
+
+  // === UNIVERSAL HEALING/BUFFING PRIORITY ===
+  // Healing and buffing are fundamental to the game regardless of mode.
+  // Good healers and buffers should always have a baseline boost.
+  if (isHealer(hero)) {
+    mult *= 1.25; // All healers get a baseline 25% boost in every mode
+  }
+  if (isBuffer(hero)) {
+    mult *= 1.2; // All buffers get a baseline 20% boost in every mode
+  }
+
   return mult;
 }
 
@@ -811,7 +852,7 @@ function getPlaystyleMultiplier(hero: any, playstyle?: string): number {
     if (hero.damageType === "Area") mult *= 1.15;
     if (hero.atkSpeed === "High" || hero.atkSpeed === "Very High") mult *= 1.1;
     if (hero.class === "Tank") mult *= 0.5;
-    if (hero.class === "Support") mult *= 0.6;
+    if (hero.class === "Support") mult *= 0.85;
   } else if (playstyle === "defensive") {
     if (hero.class === "Tank") mult *= 1.4;
     if (hero.class === "Support") mult *= 1.3;
@@ -972,6 +1013,24 @@ function optimizeLineup(
     };
   });
 
+  // === PHASE 0.5: GUARANTEE HEALING/BUFFING ===
+  // Every lineup needs sustain. Reserve the best healer and best buffer from the roster.
+  // These will be force-included in the final selection.
+  const bestHealer = [...scoredHeroes]
+    .filter(e => isHealer(e.hero))
+    .sort((a, b) => b.finalScore - a.finalScore)[0] || null;
+
+  const bestBuffer = [...scoredHeroes]
+    .filter(e => isBuffer(e.hero) && (!bestHealer || e.id !== bestHealer.id))
+    .sort((a, b) => b.finalScore - a.finalScore)[0] || null;
+
+  // Collect guaranteed picks (healer + buffer if available)
+  const guaranteedPicks: any[] = [];
+  if (bestHealer) guaranteedPicks.push(bestHealer);
+  if (bestBuffer) guaranteedPicks.push(bestBuffer);
+  const guaranteedIds = new Set(guaranteedPicks.map(e => e.id));
+  const guaranteedElixir = guaranteedPicks.reduce((sum, e) => sum + e.elixirCost, 0);
+
   // === SELECTION ALGORITHM v4 ===
   // The goal: Fill 42 cells, stay at or under elixir budget, maximize power.
   // Think of it like packing a bag: fit as many good items as possible,
@@ -993,31 +1052,42 @@ function optimizeLineup(
     }
   } else {
     // We have more troops than cells, or total cost exceeds budget.
-    // Strategy: Start with best troops, then swap expensive ones for cheap ones
-    // until we can fill the grid within budget.
+    // Strategy: Start with guaranteed healers/buffers, then fill with best troops,
+    // then swap expensive ones for cheap ones until within budget.
 
     const byScore = [...scoredHeroes].sort((a, b) => b.finalScore - a.finalScore);
 
-    // Step 1: Greedily pick the top troops by score, up to cellsToFill
-    const candidates = byScore.slice(0, cellsToFill);
+    // Step 1: Start with guaranteed healer/buffer, then fill with top troops
+    const candidates = [...guaranteedPicks];
+    const candidateIds = new Set(guaranteedPicks.map(e => e.id));
+
+    for (const entry of byScore) {
+      if (candidates.length >= cellsToFill) break;
+      if (candidateIds.has(entry.id)) continue;
+      candidates.push(entry);
+      candidateIds.add(entry.id);
+    }
+
     let candidateElixir = candidates.reduce((s, e) => s + e.elixirCost, 0);
 
     // Step 2: If over budget, swap expensive troops for cheaper ones
-    // Remove the weakest expensive troop and replace with a cheap troop not yet picked
-    const notPicked = byScore.slice(cellsToFill);
-    
+    // But NEVER swap out the guaranteed healer/buffer
+    const notPicked = byScore.filter(e => !candidateIds.has(e.id));
+
     while (candidateElixir > elixirBudget && candidates.length > 0 && notPicked.length > 0) {
       // Find the most expensive troop among candidates with the lowest score (weakest expensive one)
+      // SKIP guaranteed picks — they cannot be swapped out
       let worstExpensiveIdx = -1;
       let worstRatio = Infinity;
       for (let i = 0; i < candidates.length; i++) {
+        if (guaranteedIds.has(candidates[i].id)) continue; // protect healer/buffer
         const ratio = candidates[i].finalScore / candidates[i].elixirCost;
         if (candidates[i].elixirCost >= 4 && ratio < worstRatio) {
           worstRatio = ratio;
           worstExpensiveIdx = i;
         }
       }
-      if (worstExpensiveIdx === -1) break; // no expensive troops to swap
+      if (worstExpensiveIdx === -1) break; // no swappable expensive troops
 
       // Find cheapest available replacement
       const cheapIdx = notPicked.findIndex(e => e.elixirCost < candidates[worstExpensiveIdx].elixirCost);
@@ -1032,10 +1102,19 @@ function optimizeLineup(
     }
 
     // Step 3: If still over budget after swaps, remove troops from bottom until within budget
-    // Sort candidates by score so we remove weakest first
+    // SKIP guaranteed picks — they cannot be removed
     candidates.sort((a, b) => b.finalScore - a.finalScore);
     while (candidateElixir > elixirBudget && candidates.length > 0) {
-      const removed = candidates.pop()!;
+      // Find last non-guaranteed candidate
+      let removeIdx = -1;
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        if (!guaranteedIds.has(candidates[i].id)) {
+          removeIdx = i;
+          break;
+        }
+      }
+      if (removeIdx === -1) break; // only guaranteed left
+      const removed = candidates.splice(removeIdx, 1)[0];
       candidateElixir -= removed.elixirCost;
     }
 
@@ -1182,6 +1261,10 @@ function optimizeLineup(
     if (mode === "Clan Hunt" && (entry.hero.class === "Marksman" || entry.hero.class === "Assassin")) reasons.push("DPS priority for boss damage");
     if (playstyle === "aggressive" && ["Marksman", "Mage", "Assassin"].includes(entry.hero.class)) reasons.push("Aggressive: high burst DPS");
     if (playstyle === "defensive" && ["Tank", "Support"].includes(entry.hero.class)) reasons.push("Defensive: strong survivability");
+    if (isHealer(entry.hero)) reasons.push("Healer: provides sustain for the lineup");
+    if (isBuffer(entry.hero)) reasons.push("Buffer: amplifies team performance");
+    if (guaranteedIds.has(entry.id) && isHealer(entry.hero)) reasons.push("★ Guaranteed healer pick");
+    if (guaranteedIds.has(entry.id) && isBuffer(entry.hero)) reasons.push("★ Guaranteed buffer pick");
     return {
       heroId: entry.hero.id,
       heroName: entry.hero.name,
