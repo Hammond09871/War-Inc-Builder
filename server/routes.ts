@@ -1304,10 +1304,16 @@ function optimizeLineup(
   const wallFill = [3, 2, 4, 1, 5, 0, 6];   // Tight wall for tanks
   const spreadOut = [0, 6, 1, 5, 2, 4, 3];   // Spread for ranged (cover width)
 
-  // 1. Place TANKS in rows 0-1 (dense wall, center out)
+  // 1. Place TANKS in rows 0-1 (dense wall, center out), overflow to rows 2-3
   for (const entry of toPlace.tanks) {
     const cell = findOpenCell([0, 1], wallFill);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
+    if (cell) {
+      placeEntry(entry, cell[0], cell[1]);
+    } else {
+      // Overflow tanks to rows 2-3 (still in front half, NOT back rows)
+      const overflow = findOpenCell([2, 3], wallFill);
+      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    }
   }
 
   // 2. Place SUPPORTS in rows 2-3, CENTER columns (Oracle/buffers need center for aura)
@@ -1320,33 +1326,41 @@ function optimizeLineup(
     }
   }
 
-  // 3. Place MID DPS in rows 2-4 (near supports for buff coverage)
+  // 3. Place MID DPS in rows 2-4, overflow to 4-5
   for (const entry of toPlace.midDPS) {
     const cell = findOpenCell([2, 3, 4], centerOut);
     if (cell) placeEntry(entry, cell[0], cell[1]);
-  }
-
-  // 4. Place BACK RANGED in rows 4-5 (spread for coverage)
-  for (const entry of toPlace.backRanged) {
-    const cell = findOpenCell([4, 5], spreadOut);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([3, 4, 5], spreadOut);
+      const overflow = findOpenCell([4, 5], centerOut);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
 
-  // 5. Place OTHER troops in any remaining open cells
+  // 4. Place BACK RANGED in rows 4-5, overflow to row 3
+  for (const entry of toPlace.backRanged) {
+    const cell = findOpenCell([4, 5], spreadOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+    else {
+      const overflow = findOpenCell([3, 2], spreadOut);
+      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    }
+  }
+
+  // 5. Place OTHER troops — fill mid first, then edges
   for (const entry of toPlace.other) {
-    const cell = findOpenCell([0, 1, 2, 3, 4, 5], centerOut);
+    const cell = findOpenCell([2, 3, 4, 1, 5, 0], centerOut);
     if (cell) placeEntry(entry, cell[0], cell[1]);
   }
 
-  // 6. Any selected troops that didn't get placed (overflow)
+  // 6. Final pass — unplaced troops go near their natural zone, never dumped randomly
   const placedIds = new Set(gridPlacements.map(p => p.rosterId));
   for (const entry of selected) {
     if (placedIds.has(entry.id)) continue;
-    const cell = findOpenCell([0, 1, 2, 3, 4, 5], centerOut);
+    const cls = entry.hero.class;
+    let preferredRows = [2, 3, 4, 1, 5, 0];
+    if (cls === "Tank" || cls === "Warrior") preferredRows = [0, 1, 2, 3, 4, 5];
+    else if (cls === "Marksman" || cls === "Mage" || cls === "Archer") preferredRows = [5, 4, 3, 2, 1, 0];
+    const cell = findOpenCell(preferredRows, centerOut);
     if (cell) placeEntry(entry, cell[0], cell[1]);
   }
 
