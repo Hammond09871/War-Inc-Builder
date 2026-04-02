@@ -6,6 +6,7 @@ import {
   type Lineup, type InsertLineup, lineups,
   type RosterWithHero,
   type Changelog, type InsertChangelog, changelog,
+  type BattleResult, type InsertBattleResult, battleResults,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
@@ -140,6 +141,15 @@ sqlite.exec(`
     description TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS battle_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lineup_id INTEGER NOT NULL REFERENCES lineups(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    mode TEXT NOT NULL,
+    result TEXT NOT NULL,
+    enemy_troops TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export const db = drizzle(sqlite);
@@ -193,6 +203,11 @@ export interface IStorage {
   resetGenerations(userId: number): void;
   grantBonusGenerations(userId: number, amount: number): void;
   grantBonusSaves(userId: number, amount: number): void;
+
+  // Battle Results
+  saveBattleResult(entry: InsertBattleResult): BattleResult;
+  getBattleResults(lineupId: number): BattleResult[];
+  getBattleResultsByUser(userId: number): BattleResult[];
 
   // Export/Import
   exportUserData(userId: number): { roster: RosterWithHero[]; lineups: Lineup[] };
@@ -367,6 +382,19 @@ export class DatabaseStorage implements IStorage {
     const user = db.select().from(users).where(eq(users.id, userId)).get();
     const newCount = (user?.bonusSaves ?? 0) + amount;
     db.update(users).set({ bonusSaves: newCount }).where(eq(users.id, userId)).run();
+  }
+
+  // Battle Results
+  saveBattleResult(entry: InsertBattleResult): BattleResult {
+    return db.insert(battleResults).values(entry).returning().get();
+  }
+
+  getBattleResults(lineupId: number): BattleResult[] {
+    return db.select().from(battleResults).where(eq(battleResults.lineupId, lineupId)).all();
+  }
+
+  getBattleResultsByUser(userId: number): BattleResult[] {
+    return db.select().from(battleResults).where(eq(battleResults.userId, userId)).orderBy(desc(battleResults.id)).all();
   }
 
   // Export/Import

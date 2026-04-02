@@ -535,6 +535,39 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // --- Battle Results ---
+  app.post("/api/battle-result", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    const { lineupId, mode, result, enemyTroops } = req.body;
+    if (!lineupId || !mode || !result) {
+      return res.status(400).json({ message: "lineupId, mode, and result are required" });
+    }
+    if (!["win", "loss", "draw"].includes(result)) {
+      return res.status(400).json({ message: "result must be win, loss, or draw" });
+    }
+    const lineup = storage.getLineupById(lineupId);
+    if (!lineup || lineup.userId !== user.id) {
+      return res.status(404).json({ message: "Lineup not found" });
+    }
+    const entry = storage.saveBattleResult({
+      lineupId,
+      userId: user.id,
+      mode,
+      result,
+      enemyTroops: enemyTroops ? JSON.stringify(enemyTroops) : null,
+    });
+    res.json(entry);
+  });
+
+  app.get("/api/battle-results/:lineupId", (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+    const lineupId = Number(req.params.lineupId);
+    const results = storage.getBattleResults(lineupId);
+    res.json(results);
+  });
+
   return httpServer;
 }
 
@@ -936,9 +969,9 @@ function optimizeLineup(
       if (enemyFormation === "Split" && formation === "Dash") counterMult = 1.1;
     }
 
-    // Enemy troop counter-pick bonus
+    // Enemy troop counter-pick bonus (all modes)
     let enemyCounterMult = 1.0;
-    if (mode === "Arena" && enemyHeroNames && enemyHeroNames.length > 0) {
+    if (enemyHeroNames && enemyHeroNames.length > 0) {
       const enemySet = new Set(enemyHeroNames.map(n => n.toLowerCase()));
 
       // Check if hero's attribute counters any enemy weakness
@@ -948,6 +981,33 @@ function optimizeLineup(
           enemyCounterMult *= 1.15; // attribute advantage
           break; // only count once
         }
+      }
+
+      // Universal: penalize hero if enemy resists our attribute
+      const attrWeaknessMap: Record<string, string[]> = {
+        Fire: ["Water"], Water: ["Wind"], Wood: ["Fire"], Wind: ["Earth"],
+        Earth: ["Wind"], Frost: ["Fire"], Holy: ["Shadow"], Shadow: ["Holy"],
+      };
+      const enemyResistAttrs = new Set<string>();
+      for (const en of enemyHeroNames) {
+        const eh = allHeroes.find((h: any) => h.name.toLowerCase() === en.toLowerCase());
+        if (eh) enemyResistAttrs.add(eh.attribute);
+      }
+      // If most enemies resist our attribute, slight penalty
+      const resistedBy = attrWeaknessMap[hero.attribute];
+      if (resistedBy) {
+        const resistCount = [...enemyResistAttrs].filter(a => resistedBy.includes(a)).length;
+        if (resistCount > 0) enemyCounterMult *= 0.95;
+      }
+
+      // Universal class-based counters
+      const enemySupportCount = enemyHeroNames.filter(n => {
+        const h = allHeroes.find((a: any) => a.name.toLowerCase() === n.toLowerCase());
+        return h && h.class === "Support";
+      }).length;
+      if (enemySupportCount >= 2) {
+        // Enemy has strong healing — boost burst damage heroes
+        if (hero.class === "Assassin" || hero.class === "Mage") enemyCounterMult *= 1.1;
       }
 
       // Counter Frost Queen with Outflank-friendly troops
@@ -1288,7 +1348,7 @@ function optimizeLineup(
 
   // --- Enemy analysis ---
   let enemyAnalysis: { summary: string; advice: string[] } | null = null;
-  if (mode === "Arena" && enemyHeroNames && enemyHeroNames.length > 0) {
+  if (enemyHeroNames && enemyHeroNames.length > 0) {
     const enemyClasses: Record<string, number> = {};
     const enemyAttributes: Record<string, number> = {};
     const enemySet = new Set(enemyHeroNames.map(n => n.toLowerCase()));
@@ -1302,11 +1362,12 @@ function optimizeLineup(
     }
 
     // Build summary
+    const modeLabel = mode === "Hunting" || mode === "Clan Hunt" ? "boss minions" : "enemy troops";
     const classParts: string[] = [];
     for (const [cls, count] of Object.entries(enemyClasses)) {
       classParts.push(`${count} ${cls}${count > 1 ? "s" : ""}`);
     }
-    const summary = `${enemyHeroNames.length} enemy troops scouted: ${classParts.join(", ")}`;
+    const summary = `${enemyHeroNames.length} ${modeLabel} scouted: ${classParts.join(", ")}`;
 
     // Build advice
     const advice: string[] = [];
@@ -1335,17 +1396,24 @@ function optimizeLineup(
     // Composition-based advice
     const enemyTanks = enemyClasses["Tank"] || 0;
     const enemyDps = (enemyClasses["Marksman"] || 0) + (enemyClasses["Mage"] || 0) + (enemyClasses["Assassin"] || 0);
+    const enemySupports = enemyClasses["Support"] || 0;
     if (enemyTanks >= 3) {
       advice.push("Enemy is tank-heavy — your lineup prioritizes armor-piercing DPS (Marksmen, Mages, Assassins) to break through.");
     }
     if (enemyDps >= 4) {
       advice.push("Enemy is DPS-heavy — your lineup includes counter-assassins and front-line disruption to neutralize their backline.");
     }
+    if (enemySupports >= 2) {
+      advice.push("Enemy has multiple Supports — prioritize burst damage to overwhelm their healing before they sustain.");
+    }
 
     // Attribute-based advice
     const dominantAttr = Object.entries(enemyAttributes).sort((a, b) => b[1] - a[1])[0];
     if (dominantAttr && dominantAttr[1] >= 3) {
-      const weaknessMap: Record<string, string> = { Fire: "Water", Water: "Wind", Wood: "Fire", Wind: "Earth", Earth: "Wind" };
+      const weaknessMap: Record<string, string> = {
+        Fire: "Water", Water: "Wind", Wood: "Fire", Wind: "Earth", Earth: "Wind",
+        Frost: "Fire", Holy: "Shadow", Shadow: "Holy",
+      };
       const counter = weaknessMap[dominantAttr[0]];
       if (counter) {
         advice.push(`Enemy has ${dominantAttr[1]}x ${dominantAttr[0]} troops — ${counter}-attribute troops deal bonus damage against them.`);

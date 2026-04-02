@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock, Camera, Search, Eye, X, Users } from "lucide-react";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock, Camera, Search, Eye, X, Users, Trophy, ThumbsDown, Minus } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -36,6 +36,8 @@ export default function Optimizer() {
   const [scoutScreenshot, setScoutScreenshot] = useState<string | null>(null);
   const [scoutSearch, setScoutSearch] = useState("");
   const [scoutMode, setScoutMode] = useState<"quick" | "screenshot">("quick");
+  const [savedLineupId, setSavedLineupId] = useState<number | null>(null);
+  const [battleResultSubmitted, setBattleResultSubmitted] = useState(false);
   const { toast } = useToast();
   const { user, refreshUser } = useAuth();
   const queryClient = useQueryClient();
@@ -58,7 +60,7 @@ export default function Optimizer() {
       if (mode === "Arena" && enemyFormation !== "none") {
         body.enemyFormation = enemyFormation;
       }
-      if (mode === "Arena" && enemyHeroNames.length > 0) {
+      if (enemyHeroNames.length > 0) {
         body.enemyHeroNames = enemyHeroNames;
       }
       if (mode === "Hunting") {
@@ -72,6 +74,8 @@ export default function Optimizer() {
     },
     onSuccess: (data) => {
       setResult(data);
+      setSavedLineupId(null);
+      setBattleResultSubmitted(false);
       refreshUser();
     },
     onError: (e: Error) => {
@@ -95,8 +99,10 @@ export default function Optimizer() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast({ title: "Lineup saved!" });
+      setSavedLineupId(data.id);
+      setBattleResultSubmitted(false);
       queryClient.invalidateQueries({ queryKey: ["/api/lineups"] });
       refreshUser();
     },
@@ -107,6 +113,26 @@ export default function Optimizer() {
       } else {
         toast({ title: "Error", description: e.message, variant: "destructive" });
       }
+    },
+  });
+
+  const battleResultMutation = useMutation({
+    mutationFn: async (battleResult: string) => {
+      const res = await apiRequest("POST", "/api/battle-result", {
+        lineupId: savedLineupId,
+        mode,
+        result: battleResult,
+        enemyTroops: enemyHeroNames.length > 0 ? enemyHeroNames : undefined,
+      });
+      return res.json();
+    },
+    onSuccess: (_data, result) => {
+      setBattleResultSubmitted(true);
+      const labels: Record<string, string> = { win: "Victory", loss: "Defeat", draw: "Draw" };
+      toast({ title: `Battle result recorded: ${labels[result]}` });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     },
   });
 
@@ -326,13 +352,13 @@ export default function Optimizer() {
           <p className="text-[10px] text-muted-foreground">{BUILD_TYPE_INFO[buildType]?.description}</p>
         </div>
 
-        {/* Scout Enemy — Arena Only */}
-        {mode === "Arena" && heroes && heroes.length > 0 && (
+        {/* Scout Enemy — All Modes */}
+        {heroes && heroes.length > 0 && (
           <Card className="border-border/50" style={{ background: "#161924" }}>
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5" /> Scout Enemy Lineup
+                  <Eye className="w-3.5 h-3.5" /> {mode === "Hunting" || mode === "Clan Hunt" ? "Scout Boss Minions" : mode === "Adventure" || mode === "Infinite War" ? "Scout Enemy Wave" : "Scout Enemy Lineup"}
                 </h3>
                 <div className="flex gap-1">
                   <Button
@@ -621,6 +647,54 @@ export default function Optimizer() {
                 </div>
               </div>
             </div>
+
+            {/* Battle Result Feedback */}
+            {savedLineupId && !battleResultSubmitted && (
+              <Card className="border-primary/20" style={{ background: "rgba(212, 168, 67, 0.05)" }}>
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-semibold text-primary">How did this lineup perform?</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] gap-1 border-green-500/40 text-green-400 hover:bg-green-500/10"
+                        onClick={() => battleResultMutation.mutate("win")}
+                        disabled={battleResultMutation.isPending}
+                      >
+                        <Trophy className="w-3 h-3" /> Win
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] gap-1 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                        onClick={() => battleResultMutation.mutate("draw")}
+                        disabled={battleResultMutation.isPending}
+                      >
+                        <Minus className="w-3 h-3" /> Draw
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] gap-1 border-red-500/40 text-red-400 hover:bg-red-500/10"
+                        onClick={() => battleResultMutation.mutate("loss")}
+                        disabled={battleResultMutation.isPending}
+                      >
+                        <ThumbsDown className="w-3 h-3" /> Loss
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {battleResultSubmitted && (
+              <div className="text-center py-1">
+                <p className="text-[10px] text-muted-foreground">Battle result recorded — thanks for the feedback!</p>
+              </div>
+            )}
 
             {/* Enemy Analysis */}
             {result.enemyAnalysis && (
