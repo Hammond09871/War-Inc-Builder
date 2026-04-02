@@ -1358,8 +1358,9 @@ function optimizeLineup(
   }
 
   // Spread patterns: distribute troops with 1-2 cell gaps across full width
-  const spreadEven = [0, 3, 6, 1, 4, 2, 5];   // Spread across full width
-  const spreadCenter = [3, 0, 6, 2, 5, 1, 4];  // Center first but then spread wide
+  const spreadEven = [0, 3, 6, 1, 4, 2, 5];      // Spread across full width
+  const spreadCenter = [3, 0, 6, 2, 5, 1, 4];     // Center anchor then spread wide
+  const supportCenter = [3, 4, 2, 5, 1, 6, 0];    // Supports ALWAYS center — aura coverage
 
   // 1. Place TANKS in rows 0-1 (spread wall across full width)
   for (const entry of toPlace.tanks) {
@@ -1372,12 +1373,12 @@ function optimizeLineup(
     }
   }
 
-  // 2. Place SUPPORTS in rows 2-3, center-first spread (Oracle aura from center)
+  // 2. Place SUPPORTS in rows 2-3, ALWAYS center columns (Oracle/healer aura must radiate from center)
   for (const entry of toPlace.supports) {
-    const cell = findOpenCell([2, 3], spreadCenter);
+    const cell = findOpenCell([2, 3], supportCenter);
     if (cell) placeEntry(entry, cell[0], cell[1]);
     else {
-      const overflow = findOpenCell([3, 4], spreadCenter);
+      const overflow = findOpenCell([3, 4], supportCenter);
       if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
   }
