@@ -1234,94 +1234,126 @@ function optimizeLineup(
     else suggestedFormation = "Dash";
   }
 
-  // --- Grid placement — supports first, center-outward, with overflow ---
-  const GRID_ROWS = 7;
-  const GRID_COLS = 7;
-  const colOrder = [3, 4, 2, 5, 1, 6, 0];
-
-  const rowRanges: Record<string, number[]> = {
-    Front: [0, 1],
-    Mid: [2, 3, 4],
-    Back: [5, 6],
-  };
-
+  // --- Smart Grid Placement (research-backed, April 2026) ---
+  const GRID_ROWS = 6; // rows 0-5 usable (row 6 locked)
+  const GRID_COLS = 7; // columns 0-6
   const gridOccupied: boolean[][] = Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(false));
   const gridPlacements: { row: number; col: number; heroName: string; heroId: number; rosterId: number; level: number; rarity: string; heroClass: string; elixir: number }[] = [];
 
-  // Group by normalized placement, sort supports first within each group
-  const byPlacement: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
+  // Categorize selected troops by role for placement priority
+  const toPlace = {
+    tanks: [] as any[],
+    supports: [] as any[],
+    midDPS: [] as any[],
+    backRanged: [] as any[],
+    other: [] as any[],
+  };
+
   for (const entry of selected) {
-    const pos = normalizePlacement(entry.hero.placement);
-    byPlacement[pos].push(entry);
+    const cls = entry.hero.class;
+    const placement = normalizePlacement(entry.hero.placement);
+
+    if (cls === "Tank" || (cls === "Warrior" && placement === "Front")) {
+      toPlace.tanks.push(entry);
+    } else if (cls === "Support") {
+      toPlace.supports.push(entry);
+    } else if (placement === "Mid" || cls === "Mage") {
+      toPlace.midDPS.push(entry);
+    } else if (placement === "Back" || cls === "Marksman") {
+      toPlace.backRanged.push(entry);
+    } else {
+      toPlace.other.push(entry);
+    }
   }
-  for (const pos of ["Front", "Mid", "Back"]) {
-    byPlacement[pos].sort((a: any, b: any) => {
-      const aSupport = a.hero.class === "Support" ? 1 : 0;
-      const bSupport = b.hero.class === "Support" ? 1 : 0;
-      if (aSupport !== bSupport) return bSupport - aSupport;
-      return b.finalScore - a.finalScore;
+
+  // Sort within each group by finalScore descending (best troops get best positions)
+  for (const group of Object.values(toPlace)) {
+    group.sort((a: any, b: any) => (b.finalScore || 0) - (a.finalScore || 0));
+  }
+
+  function placeEntry(entry: any, row: number, col: number) {
+    gridOccupied[row][col] = true;
+    gridPlacements.push({
+      row, col,
+      heroName: entry.hero.name,
+      heroId: entry.hero.id,
+      rosterId: entry.id,
+      level: entry.level,
+      rarity: entry.hero.rarity,
+      heroClass: entry.hero.class,
+      elixir: entry.elixirCost,
     });
   }
 
-  const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
-
-  // Place troops: try preferred zone first, then overflow to adjacent zones
-  const allEntriesToPlace = [
-    ...byPlacement["Front"].map((e: any) => ({ ...e, preferredRows: rowRanges["Front"] })),
-    ...byPlacement["Mid"].map((e: any) => ({ ...e, preferredRows: rowRanges["Mid"] })),
-    ...byPlacement["Back"].map((e: any) => ({ ...e, preferredRows: rowRanges["Back"] })),
-  ];
-
-  for (const entry of allEntriesToPlace) {
-    let didPlace = false;
-    // First try: preferred rows
+  function findOpenCell(rows: number[], colOrder: number[]): [number, number] | null {
     for (const col of colOrder) {
-      for (const row of entry.preferredRows) {
-        if (isCellLocked(row, col)) continue;
-        if (gridOccupied[row][col]) continue;
-        gridOccupied[row][col] = true;
-        gridPlacements.push({
-          row, col,
-          heroName: entry.hero.name,
-          heroId: entry.hero.id,
-          rosterId: entry.id,
-          level: entry.level,
-          rarity: entry.hero.rarity,
-          heroClass: entry.hero.class,
-          elixir: entry.elixirCost,
-        });
-        didPlace = true;
-        break;
-      }
-      if (didPlace) break;
-    }
-    // Second try: overflow to ANY open cell
-    if (!didPlace) {
-      for (const col of colOrder) {
-        for (let row = 0; row < GRID_ROWS; row++) {
-          if (isCellLocked(row, col)) continue;
-          if (gridOccupied[row][col]) continue;
-          gridOccupied[row][col] = true;
-          gridPlacements.push({
-            row, col,
-            heroName: entry.hero.name,
-            heroId: entry.hero.id,
-            rosterId: entry.id,
-            level: entry.level,
-            rarity: entry.hero.rarity,
-            heroClass: entry.hero.class,
-            elixir: entry.elixirCost,
-          });
-          didPlace = true;
-          break;
-        }
-        if (didPlace) break;
+      for (const row of rows) {
+        if (row >= GRID_ROWS) continue;
+        if (!gridOccupied[row][col]) return [row, col];
       }
     }
-    if (didPlace) {
-      const pos = normalizePlacement(entry.hero.placement);
-      placements[pos].push(entry);
+    return null;
+  }
+
+  // Column orders for different placement priorities
+  const centerOut = [3, 4, 2, 5, 1, 6, 0];  // Center columns first (for supports/buffers)
+  const wallFill = [3, 2, 4, 1, 5, 0, 6];   // Tight wall for tanks
+  const spreadOut = [0, 6, 1, 5, 2, 4, 3];   // Spread for ranged (cover width)
+
+  // 1. Place TANKS in rows 0-1 (dense wall, center out)
+  for (const entry of toPlace.tanks) {
+    const cell = findOpenCell([0, 1], wallFill);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+  }
+
+  // 2. Place SUPPORTS in rows 2-3, CENTER columns (Oracle/buffers need center for aura)
+  for (const entry of toPlace.supports) {
+    const cell = findOpenCell([2, 3], centerOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+    else {
+      const overflow = findOpenCell([3, 4], centerOut);
+      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
     }
+  }
+
+  // 3. Place MID DPS in rows 2-4 (near supports for buff coverage)
+  for (const entry of toPlace.midDPS) {
+    const cell = findOpenCell([2, 3, 4], centerOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+  }
+
+  // 4. Place BACK RANGED in rows 4-5 (spread for coverage)
+  for (const entry of toPlace.backRanged) {
+    const cell = findOpenCell([4, 5], spreadOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+    else {
+      const overflow = findOpenCell([3, 4, 5], spreadOut);
+      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    }
+  }
+
+  // 5. Place OTHER troops in any remaining open cells
+  for (const entry of toPlace.other) {
+    const cell = findOpenCell([0, 1, 2, 3, 4, 5], centerOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+  }
+
+  // 6. Any selected troops that didn't get placed (overflow)
+  const placedIds = new Set(gridPlacements.map(p => p.rosterId));
+  for (const entry of selected) {
+    if (placedIds.has(entry.id)) continue;
+    const cell = findOpenCell([0, 1, 2, 3, 4, 5], centerOut);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
+  }
+
+  // Build placements record from grid positions
+  const placements: Record<string, any[]> = { Front: [], Mid: [], Back: [] };
+  for (const p of gridPlacements) {
+    const entry = selected.find((e: any) => e.id === p.rosterId);
+    if (!entry) continue;
+    if (p.row <= 1) placements.Front.push(entry);
+    else if (p.row <= 3) placements.Mid.push(entry);
+    else placements.Back.push(entry);
   }
 
   // Use only actually placed troops for stats
