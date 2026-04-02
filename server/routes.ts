@@ -846,6 +846,10 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
         if (hero.attribute === "Wind") mult *= 1.3;
         if (hero.attribute === "Fire") mult *= 0.5; // resisted
         if (hero.attribute === "Wood") mult *= 0.5; // weak to fire boss
+        // Klown's finding: Flame Mage outperforms Elven Archer vs dragons
+        if (hero.name === "Flame Mage") mult *= 1.8;
+        // Triple Ursa for stun lock on bosses
+        if (hero.name === "Ursa Champion") mult *= 1.5;
       }
       if (clanHuntBoss === "Naga Blade Master") {
         if (hero.attribute === "Fire") mult *= 1.5;
@@ -940,14 +944,20 @@ function optimizeLineup(
   const tierWeight: Record<string, number> = { SS: 1.5, S: 1.3, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
 
   // Override tiers based on confirmed YouTube channel rankings (April 2026)
+  // Sources: War Inc Rising Update channel + Klown Kollege channel
   const confirmedTiers: Record<string, string> = {
     "Mist Archer": "SS", "Radiant Warrior": "SS", "Frost Queen": "SS",
-    "Tide Lord": "S", "Darkmoon Queen": "S", "Goddess of War": "S", "Bone Marksman": "S",
+    "Goddess of War": "SS", // upgraded: Klown S+ + official S → SS consensus
+    "Tide Lord": "S", "Darkmoon Queen": "S", "Bone Marksman": "S",
     "Jungle Ranger": "A", "The Knight King": "A", "Starlight Apostle": "A",
     "Melody Weaver": "A", "Ripple Wizard": "A", "Firepower Vanguard": "A", "Night Scion": "A",
+    "Poison Master": "A", // Klown: "strong as hell", great DoT, run 2 L7s
+    "Flame Mage": "A", // Klown: outperforms Elven Archer vs dragons at L7
     "Blazeking": "B", "Nine Tailed Fox": "B", "Flame Duelist": "B", "Seraph": "B",
-    "Barbarian Tyrant": "B", "Geomancer": "B", "Storm Maiden": "B", "Venospore Killer": "B",
-    "Fury Cannoneer": "C", "Gryphon Knight": "C",
+    "Barbarian Tyrant": "B", "Storm Maiden": "B", "Venospore Killer": "B",
+    "Geomancer": "C", // downgraded: Klown "kind of meh", 18s charge too slow
+    "Fury Cannoneer": "D", // downgraded: Klown "absolute ass cheeks"
+    "Gryphon Knight": "C",
     // Non-mythics
     "Oracle": "SS", "Royal Archer": "S", "Pumpkin Guard": "S", "Elven Archer": "S",
     "Blast Dwarf": "S", "Ursa Champion": "A", "Bomber": "S",
@@ -1580,6 +1590,32 @@ function optimizeLineup(
       heroes: ["Gryphon Knight", "Goddess of War", "Ursa Champion"],
       title: "Chain CC Lock",
       desc: "Stun chains from these three interrupt enemy abilities continuously. Critical for Infinite War survival."
+    },
+    // Klown Kollege confirmed combos
+    {
+      heroes: ["Goddess of War", "Ripple Wizard"],
+      title: "Ability Reset Loop",
+      desc: "Ripple Wizard's energy restore lets Goddess of War recast Vanguard Shield repeatedly. Keeps your weakest unit alive through multiple shield jumps."
+    },
+    {
+      heroes: ["Ursa Champion"],
+      title: "Triple Ursa Stun Lock",
+      desc: "Three Ursa Champions create near-constant stuns on bosses. Don't merge your first set — keep three separate copies for maximum stun uptime."
+    },
+    {
+      heroes: ["Oracle"],
+      title: "Oracle Stacking",
+      desc: "Multiple Oracles stack their attack buffs. 9 Oracles = +36% damage, 18 Oracles = +72%. More Oracles = more team damage. Always prioritize Oracle to Level 7."
+    },
+    {
+      heroes: ["Flame Mage"],
+      title: "Dragon Killer",
+      desc: "Flame Mage massively outperforms Elven Archer against Clan War dragons when your tanks survive the full fight. Continuous fire damage shreds dragon HP."
+    },
+    {
+      heroes: ["Bone Marksman"],
+      title: "Penetrating Shot Specialist",
+      desc: "Bone Marksman fires a penetrating bullet every 10s at 300% damage that hits multiple enemies in a line. At Level 4: 32k HP, 9k skill damage. Future S-tier potential."
     }
   ];
 
@@ -1599,16 +1635,33 @@ function optimizeLineup(
     }
   }
 
-  // 6. Common mistakes warnings
+  // 6. Oracle stacking synergy
+  const oracleCount = actualSelected.filter(e => e.hero.name === "Oracle").length;
+  if (oracleCount >= 2) {
+    synergies.push({
+      type: "combo",
+      title: `Oracle Stack (${oracleCount}x)`,
+      description: `${oracleCount} Oracles stacking buffs = +${oracleCount * 4}% team damage. More Oracles = exponentially stronger team.`,
+      heroes: Array(oracleCount).fill("Oracle"),
+    });
+  }
+
+  // 7. Common mistakes warnings
   const warnings: string[] = [];
-  if (selectedNames.has("Frost Queen")) {
-    const fqCount = actualSelected.filter(e => e.hero.name === "Frost Queen").length;
-    if (fqCount === 1) warnings.push("Tip: Two Frost Queens at lower level is often better than one merged higher. Two Blizzard procs > one.");
+
+  // Two copies > one merged strategy (Klown Kollege emphasis)
+  const twoIsBetterHeroes = ["Frost Queen", "Radiant Warrior", "Mist Archer", "Goddess of War"];
+  for (const heroName of twoIsBetterHeroes) {
+    const copies = actualSelected.filter(e => e.hero.name === heroName);
+    if (copies.length === 1 && copies[0].level >= 5) {
+      warnings.push(`Pro tip: Two Level 5 ${heroName}s often outperform one Level 6. Double coverage on the battlefield > raw stats.`);
+    } else if (copies.length === 1 && copies[0].level < 5) {
+      // Lighter tip for lower levels
+      if (heroName === "Frost Queen") warnings.push("Tip: Two Frost Queens at lower level is often better than one merged higher. Two Blizzard procs > one.");
+      if (heroName === "Radiant Warrior") warnings.push("Tip: Two Radiant Warriors = two shield procs. Consider keeping copies separate rather than merging.");
+    }
   }
-  if (selectedNames.has("Radiant Warrior")) {
-    const rwCount = actualSelected.filter(e => e.hero.name === "Radiant Warrior").length;
-    if (rwCount === 1) warnings.push("Tip: Two Radiant Warriors = two shield procs. Consider keeping copies separate rather than merging.");
-  }
+
   const oracleEntries = actualSelected.filter(e => e.hero.name === "Oracle");
   for (const o of oracleEntries) {
     if (o.level < 7) warnings.push(`Warning: Your Oracle is Level ${o.level}. Level 7 Oracle covers the entire battlefield with buffs — prioritize leveling it up.`);
