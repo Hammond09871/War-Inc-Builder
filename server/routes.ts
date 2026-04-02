@@ -937,7 +937,21 @@ function optimizeLineup(
   clanHuntBoss?: string
 ) {
   const MAX_GRID_CELLS = 42; // 6 rows x 7 cols = 42 (row 7 fully locked until level 999)
-  const tierWeight: Record<string, number> = { S: 1.25, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
+  const tierWeight: Record<string, number> = { SS: 1.5, S: 1.3, A: 1.15, B: 1.0, C: 0.85, D: 0.7 };
+
+  // Override tiers based on confirmed YouTube channel rankings (April 2026)
+  const confirmedTiers: Record<string, string> = {
+    "Mist Archer": "SS", "Radiant Warrior": "SS", "Frost Queen": "SS",
+    "Tide Lord": "S", "Darkmoon Queen": "S", "Goddess of War": "S", "Bone Marksman": "S",
+    "Jungle Ranger": "A", "The Knight King": "A", "Starlight Apostle": "A",
+    "Melody Weaver": "A", "Ripple Wizard": "A", "Firepower Vanguard": "A", "Night Scion": "A",
+    "Blazeking": "B", "Nine Tailed Fox": "B", "Flame Duelist": "B", "Seraph": "B",
+    "Barbarian Tyrant": "B", "Geomancer": "B", "Storm Maiden": "B", "Venospore Killer": "B",
+    "Fury Cannoneer": "C", "Gryphon Knight": "C",
+    // Non-mythics
+    "Oracle": "SS", "Royal Archer": "S", "Pumpkin Guard": "S", "Elven Archer": "S",
+    "Blast Dwarf": "S", "Ursa Champion": "A", "Bomber": "S",
+  };
 
   // --- Phase 0: Score every roster entry ---
   const scoredHeroes = roster.map(entry => {
@@ -959,7 +973,7 @@ function optimizeLineup(
     const modeMult = getModeMultiplier(hero, mode, formation, huntingBoss, enemyFormation, clanHuntBoss);
     const styleMult = getPlaystyleMultiplier(hero, playstyle);
     const buildMult = getBuildTypeMultiplier(hero, buildType);
-    const tierMult = tierWeight[hero.tier] || 1.0;
+    const tierMult = tierWeight[confirmedTiers[hero.name] || hero.tier] || 1.0;
 
     // Counter-pick bonus for Arena
     let counterMult = 1.0;
@@ -1515,6 +1529,94 @@ function optimizeLineup(
     });
   }
 
+  // 5. Channel-confirmed synergy combos (April 2026)
+  const channelCombos = [
+    {
+      heroes: ["Frost Queen", "Radiant Warrior"],
+      title: "Shield + Blizzard Combo",
+      desc: "Radiant Warrior's team shield keeps Frost Queen alive to proc Blizzard. Keep two of each — don't merge into one."
+    },
+    {
+      heroes: ["Oracle", "Melody Weaver", "Starlight Apostle"],
+      title: "Triple Buff Stack",
+      desc: "Oracle damage buff + Melody Weaver attack speed + Starlight attack bonus. The combined buff amplifies all DPS troops massively."
+    },
+    {
+      heroes: ["Ripple Wizard", "Frost Queen"],
+      title: "Energy Battery + Burst",
+      desc: "Ripple Wizard restores energy to nearby allies, letting Frost Queen recharge Blizzard faster for multiple casts."
+    },
+    {
+      heroes: ["Night Scion"],
+      title: "Execution Chain",
+      desc: "Night Scion blinks to low-HP mages. At Level 6, kills restore energy for chain kills. Devastating backline pressure."
+    },
+    {
+      heroes: ["Elven Archer", "Melody Weaver"],
+      title: "Rapid Fire Combo",
+      desc: "Melody Weaver's attack speed buff on Elven Archer creates insane single-target DPS. Great for bosses."
+    },
+    {
+      heroes: ["Bomber"],
+      title: "Backstab Essential",
+      desc: "Bomber's Self-Destruct in positions B2-B3 and B5-B6 devastates enemy backline. Level 7 adds stun. Essential for Backstab formation."
+    },
+    {
+      heroes: ["Pumpkin Guard"],
+      title: "Aggro Magnet",
+      desc: "Pumpkin Guard's taunt pulls enemy aggro, protecting your DPS. Used in nearly every team comp."
+    },
+    {
+      heroes: ["Venospore Killer", "Nine Tailed Fox"],
+      title: "Co-op Boss Killers",
+      desc: "Top 2 co-op boss damage dealers. Venospore blinks to mages dealing 600% damage. Nine Tailed Fox ignores fire resistance."
+    },
+    {
+      heroes: ["Royal Archer"],
+      title: "Boss Specialist",
+      desc: "Level 6 gives bonus damage vs Boss enemies. Stackable attack speed self-buff goes through the roof at 6/7. Best boss DPS."
+    },
+    {
+      heroes: ["Gryphon Knight", "Goddess of War", "Ursa Champion"],
+      title: "Chain CC Lock",
+      desc: "Stun chains from these three interrupt enemy abilities continuously. Critical for Infinite War survival."
+    }
+  ];
+
+  for (const combo of channelCombos) {
+    const presentHeroes = combo.heroes.filter(h => selectedNames.has(h));
+    if (presentHeroes.length === combo.heroes.length || (combo.heroes.length === 1 && presentHeroes.length === 1)) {
+      // Avoid duplicate if the same combo was already detected by the generic engine
+      const isDuplicate = synergies.some(s => s.title === combo.title);
+      if (!isDuplicate) {
+        synergies.push({
+          type: "combo",
+          title: combo.title,
+          description: combo.desc,
+          heroes: presentHeroes,
+        });
+      }
+    }
+  }
+
+  // 6. Common mistakes warnings
+  const warnings: string[] = [];
+  if (selectedNames.has("Frost Queen")) {
+    const fqCount = actualSelected.filter(e => e.hero.name === "Frost Queen").length;
+    if (fqCount === 1) warnings.push("Tip: Two Frost Queens at lower level is often better than one merged higher. Two Blizzard procs > one.");
+  }
+  if (selectedNames.has("Radiant Warrior")) {
+    const rwCount = actualSelected.filter(e => e.hero.name === "Radiant Warrior").length;
+    if (rwCount === 1) warnings.push("Tip: Two Radiant Warriors = two shield procs. Consider keeping copies separate rather than merging.");
+  }
+  const oracleEntries = actualSelected.filter(e => e.hero.name === "Oracle");
+  for (const o of oracleEntries) {
+    if (o.level < 7) warnings.push(`Warning: Your Oracle is Level ${o.level}. Level 7 Oracle covers the entire battlefield with buffs — prioritize leveling it up.`);
+  }
+  if (selectedNames.has("Ghost Assassin") && mode !== "Arena" && mode !== "Clan War") {
+    warnings.push("Note: Ghost Assassin jumps to backline and often dies quickly in PvE modes. Better suited for Arena/PvP.");
+  }
+
   return {
     lineup: actualSelected.map(e => ({
       rosterId: e.id,
@@ -1535,6 +1637,7 @@ function optimizeLineup(
     placements,
     gridPlacements,
     synergies,
+    warnings,
     mode,
   };
 }

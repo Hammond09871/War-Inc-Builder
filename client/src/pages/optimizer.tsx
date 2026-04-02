@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock, Camera, Search, Eye, X, Users, Trophy, ThumbsDown, Minus } from "lucide-react";
+import { Brain, Zap, Shield, Swords, Heart, Wand2, Info, Crosshair, Lock, Save, Trash2, Clock, Camera, Search, Eye, X, Users, Trophy, ThumbsDown, Minus, AlertTriangle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -908,6 +908,25 @@ export default function Optimizer() {
                             </div>
                           </div>
                         </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tips & Warnings */}
+            {result.warnings && result.warnings.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle className="w-3 h-3 text-yellow-500" /> Tips & Warnings
+                </h3>
+                <div className="space-y-1.5">
+                  {result.warnings.map((warning: string, idx: number) => (
+                    <Card key={idx} className="border-yellow-500/20" style={{ background: "rgba(234, 179, 8, 0.05)" }}>
+                      <CardContent className="p-3 flex items-start gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-0.5" />
+                        <p className="text-[10px] text-muted-foreground">{warning}</p>
                       </CardContent>
                     </Card>
                   ))}
