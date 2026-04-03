@@ -90,7 +90,7 @@ export default function LineupBuilder() {
       const res = await apiRequest("POST", "/api/lineups", {
         name: lineupName || `${mode} Lineup`,
         mode,
-        formation: mode === "Arena" ? formation : null,
+        formation: (mode === "Arena" || mode === "Clan War") ? formation : null,
         heroSelections,
       });
       return res.json();
@@ -141,7 +141,7 @@ export default function LineupBuilder() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/optimize", {
         mode,
-        formation: mode === "Arena" ? formation : undefined,
+        formation: (mode === "Arena" || mode === "Clan War") ? formation : undefined,
         huntingBoss: mode === "Hunting" ? huntingBoss : undefined,
         clanHuntBoss: mode === "Clan Hunt" ? clanHuntBoss : undefined,
         elixirBudget: elixirLimit,
@@ -328,7 +328,7 @@ export default function LineupBuilder() {
         </Tabs>
 
         {/* Formation Selector (Arena only) */}
-        {mode === "Arena" && (
+        {(mode === "Arena" || mode === "Clan War") && (
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs text-muted-foreground">Formation:</span>
             <div className="flex gap-1.5">

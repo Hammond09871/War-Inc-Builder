@@ -156,6 +156,7 @@ export default function Optimizer() {
 
   const modeDescriptions: Record<string, string> = {
     Arena: "PvP battles where formation and counter-picks matter most",
+    "Clan War": "Territory battles — choose Outflank for tower builds, Backstab for PvP garrisons",
     Hunting: "Boss encounters (Evil Ivy, Twin-Dragon) prioritizing single-target DPS",
     Adventure: "PvE content needing balanced teams with strong front line",
     "Infinite War": "Endurance mode valuing sustainability and healing",
@@ -212,9 +213,9 @@ export default function Optimizer() {
           <Card className="border-border/50" style={{ background: "#161924" }}>
             <CardContent className="p-4 space-y-3">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {mode === "Arena" ? "Enemy Formation" : mode === "Hunting" ? "Hunting Boss" : mode === "Clan Hunt" ? "Clan Hunt Boss" : "Options"}
+                {mode === "Arena" || mode === "Clan War" ? "Formation" : mode === "Hunting" ? "Hunting Boss" : mode === "Clan Hunt" ? "Clan Hunt Boss" : "Options"}
               </h3>
-              {mode === "Arena" ? (
+              {mode === "Arena" || mode === "Clan War" ? (
                 <>
                   <Select value={enemyFormation} onValueChange={setEnemyFormation}>
                     <SelectTrigger className="h-9 text-sm" style={{ background: "#1E2233" }} data-testid="select-enemy-formation">
