@@ -804,24 +804,49 @@ function getModeMultiplier(hero: any, mode: string, formation?: string, huntingB
     }
     
     case "Clan War": {
-      // Similar to Arena but with territory-specific considerations
+      // Clan War tower build: Outflank strategy with tanks on sides, DPS center
       // Spider boss uses AoE bombs — need spread formation
       // Dragon Knight guardians scale with tower level
-      
-      // Area damage is strong
+
+      // Area damage is strong for garrison PvP
       if (hero.damageType === "Area") mult *= 1.3;
-      
-      // S-tier for Clan War
+
+      // S-tier for Clan War (PvP garrisons)
       if (hero.name === "Frost Queen") mult *= 1.7;
-      if (hero.name === "Radiant Warrior") mult *= 1.6;
-      if (hero.name === "Oracle") mult *= 1.5;
       if (hero.name === "Bomber") mult *= 1.5;
-      
-      // Need balanced composition
-      if (hero.class === "Tank") mult *= 1.2;
+
+      // Tower build: Royal Archer is #1 DPS
+      if (hero.name === "Royal Archer") mult *= 2.0;
+
+      // Top tower DPS troops
+      const towerDPS: string[] = ["Bone Marksman", "Flame Mage", "Mist Archer", "Elven Archer",
+        "Nine Tailed Fox", "Forest Scout", "Jungle Ranger"];
+      if (towerDPS.includes(hero.name)) mult *= 1.5;
+
+      // Apprentice Mage specifically recommended for tower builds
+      if (hero.name === "Apprentice Mage") mult *= 1.3;
+
+      // Supports essential for tower builds
+      if (hero.name === "Melody Weaver") mult *= 1.5;
+      if (hero.name === "Starlight Apostle") mult *= 1.5;
+      if (hero.name === "Oracle") mult *= 1.6;
+      if (hero.name === "Ripple Wizard") mult *= 1.4;
+      if (hero.name === "Tide Lord" || hero.name === "Blazeking") mult *= 1.3;
+
+      // Healers critical — 1 per tank side
+      if (hero.name === "Wooden Wizard" || hero.name === "Woodland Guardian" || hero.name === "Goblin Shaman") mult *= 1.4;
+
+      // Shield units valuable
+      if (hero.name === "Radiant Warrior" || hero.name === "Goddess of War") mult *= 1.5;
+
+      // Tanks needed for side positioning
+      const clanWarTanks: string[] = ["The Knight King", "Flame Duelist", "Gryphon Knight", "Pumpkin Guard"];
+      if (clanWarTanks.includes(hero.name)) mult *= 1.3;
+
+      // General class bonuses
       if (hero.class === "Support") mult *= 1.3;
-      
-      // Formation counters apply (reuse Arena logic)
+
+      // Formation counters (PvP garrisons)
       if (formation === "Backstab") {
         if (hero.name === "Bomber") mult *= 2.0;
         if (hero.name === "Frost Queen") mult *= 1.5;
@@ -1357,78 +1382,180 @@ function optimizeLineup(
     return null;
   }
 
-  // Spread patterns: distribute troops with 1-2 cell gaps across full width
-  const spreadEven = [0, 3, 6, 1, 4, 2, 5];      // Spread across full width
-  const spreadCenter = [3, 0, 6, 2, 5, 1, 4];     // Center anchor then spread wide
-  const supportCenter = [3, 4, 2, 5, 1, 6, 0];    // Supports ALWAYS center — aura coverage
+  const isClanWarTower = mode === "Clan War";
 
-  // 1. Place TANKS in rows 0-1 (spread wall across full width)
-  for (const entry of toPlace.tanks) {
-    const cell = findOpenCell([0, 1], spreadEven);
-    if (cell) {
-      placeEntry(entry, cell[0], cell[1]);
-    } else {
-      const overflow = findOpenCell([2, 3], spreadEven);
-      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+  if (isClanWarTower) {
+    // SPECIAL CLAN WAR PLACEMENT: Outflank tower build
+    // Tanks on far sides (columns 0 and 6), DPS in center, supports around DPS
+
+    const cwTanks: any[] = [];
+    const cwHealers: any[] = [];
+    const cwShields: any[] = [];
+    const cwDPS: any[] = [];
+    const cwSupports: any[] = [];
+
+    const shieldNames = new Set(["Radiant Warrior", "Goddess of War"]);
+    const cwHealerNames = new Set(["Wooden Wizard", "Woodland Guardian", "Goblin Shaman", "Grace Priest"]);
+
+    for (const entry of selected) {
+      if (shieldNames.has(entry.hero.name)) cwShields.push(entry);
+      else if (cwHealerNames.has(entry.hero.name)) cwHealers.push(entry);
+      else if (entry.hero.class === "Tank" || (entry.hero.class === "Warrior" && normalizePlacement(entry.hero.placement) === "Front")) cwTanks.push(entry);
+      else if (entry.hero.class === "Support") cwSupports.push(entry);
+      else cwDPS.push(entry);
     }
-  }
 
-  // 2. Place SUPPORTS in rows 2-3, ALWAYS center columns (Oracle/healer aura must radiate from center)
-  for (const entry of toPlace.supports) {
-    const cell = findOpenCell([2, 3], supportCenter);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
-    else {
-      const overflow = findOpenCell([3, 4], supportCenter);
-      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    [cwTanks, cwHealers, cwShields, cwDPS, cwSupports].forEach(g => g.sort((a: any, b: any) => (b.finalScore || 0) - (a.finalScore || 0)));
+
+    // TANK PLACEMENT: Far sides only (columns 0 and 6), rows 0-2
+    const sideColumns = [0, 6];
+    const tankRows = [0, 1, 2];
+    for (const entry of cwTanks) {
+      let placed = false;
+      for (const col of sideColumns) {
+        for (const row of tankRows) {
+          if (!gridOccupied[row][col]) {
+            placeEntry(entry, row, col);
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      if (!placed) {
+        for (const col of [1, 5]) {
+          for (const row of tankRows) {
+            if (!gridOccupied[row][col]) {
+              placeEntry(entry, row, col);
+              placed = true;
+              break;
+            }
+          }
+          if (placed) break;
+        }
+      }
     }
-  }
 
-  // 2b. Place CORE DPS in rows 3-4 (behind supports where they survive longer)
-  for (const entry of toPlace.coreDPS) {
-    const cell = findOpenCell([3, 4, 2, 5], spreadCenter);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
-    else {
-      const overflow = findOpenCell([5, 2], spreadCenter);
-      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    // HEALER PLACEMENT: 1 per tank side (columns 1 and 5, rows 1-2)
+    let healerIdx = 0;
+    const healerCols = [1, 5];
+    for (const entry of cwHealers) {
+      const col = healerCols[healerIdx % 2];
+      for (const r of [1, 2, 0]) {
+        if (!gridOccupied[r][col]) {
+          placeEntry(entry, r, col);
+          break;
+        }
+      }
+      healerIdx++;
     }
-  }
 
-  // 3. Place MID DPS in rows 3-4, overflow to 5
-  for (const entry of toPlace.midDPS) {
-    const cell = findOpenCell([3, 4, 2], spreadCenter);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
-    else {
-      const overflow = findOpenCell([5, 2], spreadCenter);
-      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    // SHIELD PLACEMENT: Second row center (between highest HP units)
+    for (const entry of cwShields) {
+      const cell = findOpenCell([1, 2], [3, 4, 2, 5]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
     }
-  }
 
-  // 4. Place BACK RANGED in rows 4-5 (spread for coverage)
-  for (const entry of toPlace.backRanged) {
-    const cell = findOpenCell([4, 5], spreadEven);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
-    else {
-      const overflow = findOpenCell([3, 2], spreadEven);
-      if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+    // SUPPORT PLACEMENT: Spread around DPS core in center rows
+    for (const entry of cwSupports) {
+      const cell = findOpenCell([2, 3, 4], [3, 4, 2, 5, 1]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
     }
-  }
 
-  // 5. Place OTHER troops — fill mid first, then edges
-  for (const entry of toPlace.other) {
-    const cell = findOpenCell([2, 3, 4, 1, 5, 0], spreadCenter);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
-  }
+    // DPS PLACEMENT: Center columns (2,3,4,5), rows 2-5
+    for (const entry of cwDPS) {
+      const cell = findOpenCell([2, 3, 4, 5], [3, 4, 2, 5]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+      else {
+        const overflow = findOpenCell([0, 1, 2, 3, 4, 5], [3, 4, 2, 5, 1]);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
 
-  // 6. Final pass — unplaced troops go near their natural zone, never dumped randomly
-  const placedIds = new Set(gridPlacements.map(p => p.rosterId));
-  for (const entry of selected) {
-    if (placedIds.has(entry.id)) continue;
-    const cls = entry.hero.class;
-    let preferredRows = [2, 3, 4, 1, 5, 0];
-    if (cls === "Tank" || cls === "Warrior") preferredRows = [0, 1, 2, 3, 4, 5];
-    else if (cls === "Marksman" || cls === "Mage" || cls === "Archer") preferredRows = [5, 4, 3, 2, 1, 0];
-    const cell = findOpenCell(preferredRows, spreadCenter);
-    if (cell) placeEntry(entry, cell[0], cell[1]);
+    // Any remaining unplaced troops
+    const cwPlacedIds = new Set(gridPlacements.map(p => p.rosterId));
+    for (const entry of selected) {
+      if (cwPlacedIds.has(entry.id)) continue;
+      const cell = findOpenCell([0, 1, 2, 3, 4, 5], [3, 4, 2, 5, 1, 0, 6]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+  } else {
+    // --- Standard placement for all other modes ---
+
+    // Spread patterns: distribute troops with 1-2 cell gaps across full width
+    const spreadEven = [0, 3, 6, 1, 4, 2, 5];      // Spread across full width
+    const spreadCenter = [3, 0, 6, 2, 5, 1, 4];     // Center anchor then spread wide
+    const supportCenter = [3, 4, 2, 5, 1, 6, 0];    // Supports ALWAYS center — aura coverage
+
+    // 1. Place TANKS in rows 0-1 (spread wall across full width)
+    for (const entry of toPlace.tanks) {
+      const cell = findOpenCell([0, 1], spreadEven);
+      if (cell) {
+        placeEntry(entry, cell[0], cell[1]);
+      } else {
+        const overflow = findOpenCell([2, 3], spreadEven);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
+
+    // 2. Place SUPPORTS in rows 2-3, ALWAYS center columns (Oracle/healer aura must radiate from center)
+    for (const entry of toPlace.supports) {
+      const cell = findOpenCell([2, 3], supportCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+      else {
+        const overflow = findOpenCell([3, 4], supportCenter);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
+
+    // 2b. Place CORE DPS in rows 3-4 (behind supports where they survive longer)
+    for (const entry of toPlace.coreDPS) {
+      const cell = findOpenCell([3, 4, 2, 5], spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+      else {
+        const overflow = findOpenCell([5, 2], spreadCenter);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
+
+    // 3. Place MID DPS in rows 3-4, overflow to 5
+    for (const entry of toPlace.midDPS) {
+      const cell = findOpenCell([3, 4, 2], spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+      else {
+        const overflow = findOpenCell([5, 2], spreadCenter);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
+
+    // 4. Place BACK RANGED in rows 4-5 (spread for coverage)
+    for (const entry of toPlace.backRanged) {
+      const cell = findOpenCell([4, 5], spreadEven);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+      else {
+        const overflow = findOpenCell([3, 2], spreadEven);
+        if (overflow) placeEntry(entry, overflow[0], overflow[1]);
+      }
+    }
+
+    // 5. Place OTHER troops — fill mid first, then edges
+    for (const entry of toPlace.other) {
+      const cell = findOpenCell([2, 3, 4, 1, 5, 0], spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // 6. Final pass — unplaced troops go near their natural zone, never dumped randomly
+    const placedIds = new Set(gridPlacements.map(p => p.rosterId));
+    for (const entry of selected) {
+      if (placedIds.has(entry.id)) continue;
+      const cls = entry.hero.class;
+      let preferredRows = [2, 3, 4, 1, 5, 0];
+      if (cls === "Tank" || cls === "Warrior") preferredRows = [0, 1, 2, 3, 4, 5];
+      else if (cls === "Marksman" || cls === "Mage" || cls === "Archer") preferredRows = [5, 4, 3, 2, 1, 0];
+      const cell = findOpenCell(preferredRows, spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
   }
 
   // Build placements record from grid positions
@@ -1733,6 +1860,12 @@ function optimizeLineup(
       heroes: ["Bone Marksman"],
       title: "Penetrating Shot Specialist",
       desc: "Bone Marksman fires a penetrating bullet every 10s at 300% damage that hits multiple enemies in a line. At Level 4: 32k HP, 9k skill damage. Future S-tier potential."
+    },
+    // Clan War tower build combo
+    {
+      heroes: ["Royal Archer", "Oracle", "Melody Weaver"],
+      title: "Tower DPS Core",
+      desc: "Royal Archer with Oracle damage buff and Melody Weaver attack speed buff is the #1 tower build DPS combo. Stack center, protected by side tanks."
     }
   ];
 
@@ -1785,6 +1918,18 @@ function optimizeLineup(
   }
   if (selectedNames.has("Ghost Assassin") && mode !== "Arena" && mode !== "Clan War") {
     warnings.push("Note: Ghost Assassin jumps to backline and often dies quickly in PvE modes. Better suited for Arena/PvP.");
+  }
+
+  // Clan War: warn about melee DPS in center
+  if (mode === "Clan War") {
+    const clanWarTankNames = new Set(["The Knight King", "Flame Duelist", "Gryphon Knight", "Pumpkin Guard"]);
+    const meleeCenterWarning = actualSelected.filter(e =>
+      e.hero.class === "Warrior" && normalizePlacement(e.hero.placement) === "Front" &&
+      !clanWarTankNames.has(e.hero.name)
+    );
+    if (meleeCenterWarning.length > 0) {
+      warnings.push("Clan War tip: Avoid melee units in center — they walk into Dragon AOE. Use ranged DPS center, tanks on sides.");
+    }
   }
 
   return {
