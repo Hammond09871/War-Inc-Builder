@@ -1382,9 +1382,188 @@ function optimizeLineup(
     return null;
   }
 
-  const isClanWarTower = mode === "Clan War";
+  // Shared column patterns used by multiple formation branches
+  const spreadEven = [0, 3, 6, 1, 4, 2, 5];
+  const spreadCenter = [3, 0, 6, 2, 5, 1, 4];
+  const supportCenter = [3, 4, 2, 5, 1, 6, 0];
 
-  if (isClanWarTower) {
+  const hasFormation = (mode === "Arena" || mode === "Clan War") && formation;
+  const isClanWarTower = mode === "Clan War" && !hasFormation;
+
+  if (hasFormation && formation === "Backstab") {
+    // BACKSTAB: Strikers teleport to rows 3-4, edge columns behind enemy lines
+    // Place best DPS in backstab cells, tanks front center, supports center mid
+    const backstabCells: [number, number][] = [
+      [3, 0], [3, 1], [3, 5], [3, 6],
+      [4, 0], [4, 1], [4, 5], [4, 6],
+    ];
+
+    // Strikers = coreDPS + midDPS + backRanged (all DPS), sorted by score
+    const strikers = [...toPlace.coreDPS, ...toPlace.midDPS, ...toPlace.backRanged]
+      .sort((a: any, b: any) => (b.finalScore || 0) - (a.finalScore || 0));
+
+    // Place top strikers in backstab teleport cells
+    let bIdx = 0;
+    for (const entry of strikers) {
+      if (bIdx >= backstabCells.length) break;
+      const [row, col] = backstabCells[bIdx];
+      if (!gridOccupied[row][col]) {
+        placeEntry(entry, row, col);
+        bIdx++;
+      } else {
+        bIdx++;
+      }
+    }
+    const placedStrikers = new Set(gridPlacements.map(p => p.rosterId));
+
+    // Remaining strikers go in mid rows center
+    for (const entry of strikers) {
+      if (placedStrikers.has(entry.id)) continue;
+      const cell = findOpenCell([2, 3, 4], spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Tanks front center (rows 0-1, center columns protect your backline)
+    for (const entry of toPlace.tanks) {
+      const cell = findOpenCell([0, 1], [3, 4, 2, 5, 1, 0, 6]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Supports center mid (rows 1-2, center for aura coverage)
+    for (const entry of toPlace.supports) {
+      const cell = findOpenCell([1, 2, 3], supportCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Other troops fill remaining
+    for (const entry of toPlace.other) {
+      const cell = findOpenCell([2, 3, 4, 1, 5, 0], supportCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+  } else if (hasFormation && formation === "Outflank") {
+    // OUTFLANK: Troops on columns 0 and 6 wrap around to enemy flanks
+    // Tanks on sides (cols 0,6), healers near sides, supports/DPS center
+
+    // Tanks on far columns (0, 6), rows 0-2
+    const sideCols = [0, 6];
+    for (const entry of toPlace.tanks) {
+      let placed = false;
+      for (const col of sideCols) {
+        for (const row of [0, 1, 2]) {
+          if (!gridOccupied[row][col]) {
+            placeEntry(entry, row, col);
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      if (!placed) {
+        const cell = findOpenCell([0, 1, 2], [1, 5, 2, 4]);
+        if (cell) placeEntry(entry, cell[0], cell[1]);
+      }
+    }
+
+    // Supports near sides (cols 1,5) for aura on flanking troops
+    let sideIdx = 0;
+    for (const entry of toPlace.supports) {
+      const col = [1, 5][sideIdx % 2];
+      for (const row of [1, 2, 3]) {
+        if (!gridOccupied[row][col]) {
+          placeEntry(entry, row, col);
+          break;
+        }
+      }
+      sideIdx++;
+    }
+
+    // Core DPS center (cols 2-4, rows 2-4)
+    for (const entry of toPlace.coreDPS) {
+      const cell = findOpenCell([2, 3, 4], [3, 2, 4, 1, 5]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Mid DPS center
+    for (const entry of toPlace.midDPS) {
+      const cell = findOpenCell([3, 4, 2], [3, 2, 4, 1, 5]);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Back ranged spread
+    for (const entry of toPlace.backRanged) {
+      const cell = findOpenCell([4, 5, 3], spreadEven);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Other fill
+    for (const entry of toPlace.other) {
+      const cell = findOpenCell([2, 3, 4, 1, 5, 0], spreadCenter);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+  } else if (hasFormation && formation === "Split") {
+    // SPLIT: Left half (cols 0-3) and right half (cols 4-6) deploy separately
+    // Alternate troops between halves; each half needs its own support
+
+    const leftCols = [1, 2, 3, 0];
+    const rightCols = [5, 4, 6];
+
+    // Separate supports for left and right halves
+    const leftSupports: any[] = [];
+    const rightSupports: any[] = [];
+    for (let i = 0; i < toPlace.supports.length; i++) {
+      if (i % 2 === 0) leftSupports.push(toPlace.supports[i]);
+      else rightSupports.push(toPlace.supports[i]);
+    }
+
+    // Split tanks between halves
+    const leftTanks: any[] = [];
+    const rightTanks: any[] = [];
+    for (let i = 0; i < toPlace.tanks.length; i++) {
+      if (i % 2 === 0) leftTanks.push(toPlace.tanks[i]);
+      else rightTanks.push(toPlace.tanks[i]);
+    }
+
+    // Split DPS between halves (coreDPS + midDPS + backRanged + other)
+    const allDPS = [...toPlace.coreDPS, ...toPlace.midDPS, ...toPlace.backRanged, ...toPlace.other]
+      .sort((a: any, b: any) => (b.finalScore || 0) - (a.finalScore || 0));
+    const leftDPS: any[] = [];
+    const rightDPS: any[] = [];
+    for (let i = 0; i < allDPS.length; i++) {
+      if (i % 2 === 0) leftDPS.push(allDPS[i]);
+      else rightDPS.push(allDPS[i]);
+    }
+
+    // Place left half
+    for (const entry of leftTanks) {
+      const cell = findOpenCell([0, 1], leftCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+    for (const entry of leftSupports) {
+      const cell = findOpenCell([1, 2, 3], leftCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+    for (const entry of leftDPS) {
+      const cell = findOpenCell([2, 3, 4, 5], leftCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+    // Place right half
+    for (const entry of rightTanks) {
+      const cell = findOpenCell([0, 1], rightCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+    for (const entry of rightSupports) {
+      const cell = findOpenCell([1, 2, 3], rightCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+    for (const entry of rightDPS) {
+      const cell = findOpenCell([2, 3, 4, 5], rightCols);
+      if (cell) placeEntry(entry, cell[0], cell[1]);
+    }
+
+  } else if (isClanWarTower) {
     // SPECIAL CLAN WAR PLACEMENT: Outflank tower build
     // Tanks on far sides (columns 0 and 6), DPS in center, supports around DPS
 
@@ -1483,11 +1662,6 @@ function optimizeLineup(
   } else {
     // --- Standard placement for all other modes ---
 
-    // Spread patterns: distribute troops with 1-2 cell gaps across full width
-    const spreadEven = [0, 3, 6, 1, 4, 2, 5];      // Spread across full width
-    const spreadCenter = [3, 0, 6, 2, 5, 1, 4];     // Center anchor then spread wide
-    const supportCenter = [3, 4, 2, 5, 1, 6, 0];    // Supports ALWAYS center — aura coverage
-
     // 1. Place TANKS in rows 0-1 (spread wall across full width)
     for (const entry of toPlace.tanks) {
       const cell = findOpenCell([0, 1], spreadEven);
@@ -1556,6 +1730,14 @@ function optimizeLineup(
       const cell = findOpenCell(preferredRows, spreadCenter);
       if (cell) placeEntry(entry, cell[0], cell[1]);
     }
+  }
+
+  // Universal catch-all: ensure ALL selected troops are placed (covers all formation branches)
+  const allPlacedIds = new Set(gridPlacements.map(p => p.rosterId));
+  for (const entry of selected) {
+    if (allPlacedIds.has(entry.id)) continue;
+    const cell = findOpenCell([0, 1, 2, 3, 4, 5], [3, 4, 2, 5, 1, 0, 6]);
+    if (cell) placeEntry(entry, cell[0], cell[1]);
   }
 
   // Build placements record from grid positions
