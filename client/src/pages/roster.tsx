@@ -3,8 +3,9 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,8 @@ export default function MyRoster() {
   const [expandedHeroId, setExpandedHeroId] = useState<number | null>(null);
   const [bulkEntries, setBulkEntries] = useState<Record<number, BulkEntry>>({});
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importSearch, setImportSearch] = useState("");
+  const [importSelections, setImportSelections] = useState<Record<number, { checked: boolean; quantity: number; level: number }>>({});
   const { toast } = useToast();
 
   const { data: heroes } = useQuery<Hero[]>({ queryKey: ["/api/heroes"] });
@@ -123,6 +126,54 @@ export default function MyRoster() {
     },
   });
 
+  const quickImportMutation = useMutation({
+    mutationFn: async (troops: { heroId: number; level: number; quantity: number }[]) => {
+      const res = await apiRequest("POST", "/api/roster/bulk", { troops });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/roster"] });
+      setImportDialogOpen(false);
+      setImportSelections({});
+      setImportSearch("");
+      toast({ title: `Added ${data.added} troops to roster!` });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleQuickImport = () => {
+    const troops = Object.entries(importSelections)
+      .filter(([_, v]) => v.checked)
+      .map(([heroId, v]) => ({ heroId: Number(heroId), level: v.level, quantity: v.quantity }));
+    if (troops.length === 0) return;
+    quickImportMutation.mutate(troops);
+  };
+
+  const checkedCount = Object.values(importSelections).filter(v => v.checked).length;
+
+  const rarityOrder = ["Mythic", "Legendary", "Epic", "Rare", "Common"];
+  const importHeroes = useMemo(() => {
+    if (!heroes) return [];
+    const filtered = importSearch
+      ? heroes.filter(h => h.name.toLowerCase().includes(importSearch.toLowerCase()))
+      : heroes;
+    return [...filtered].sort((a, b) => {
+      const ri = rarityOrder.indexOf(a.rarity) - rarityOrder.indexOf(b.rarity);
+      if (ri !== 0) return ri;
+      return a.name.localeCompare(b.name);
+    });
+  }, [heroes, importSearch]);
+
+  const importGrouped = useMemo(() => {
+    const groups: Record<string, Hero[]> = {};
+    for (const h of importHeroes) {
+      (groups[h.rarity] ??= []).push(h);
+    }
+    return groups;
+  }, [importHeroes]);
+
   // Merge: remove one copy at same level, level up another
   const handleMerge = (group: GroupedTroop, copyId: number, copyLevel: number) => {
     if (copyLevel >= 9) {
@@ -209,7 +260,7 @@ export default function MyRoster() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="text-xs gap-1.5"
               onClick={() => setImportDialogOpen(true)} data-testid="button-import-screenshot">
-              <Camera className="w-3.5 h-3.5" /> Import
+              <Camera className="w-3.5 h-3.5" /> Quick Import
             </Button>
             <Button size="sm" className="text-xs gap-1.5" onClick={() => setAddDialogOpen(true)} data-testid="button-add-hero">
               <Plus className="w-3.5 h-3.5" /> Add Troops
@@ -517,20 +568,142 @@ export default function MyRoster() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Screenshot Dialog */}
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="sm:max-w-md border-border/50" style={{ background: "#161924" }}>
+      {/* Quick Import Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={(open) => {
+        setImportDialogOpen(open);
+        if (!open) { setImportSearch(""); }
+      }}>
+        <DialogContent className="sm:max-w-lg border-border/50 flex flex-col" style={{ background: "#161924", maxHeight: "85vh" }}>
           <DialogHeader>
-            <DialogTitle>Import from Screenshot</DialogTitle>
+            <DialogTitle>Quick Roster Import</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Select all troops you own, set quantities and levels
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg border border-dashed border-border/50 p-8 text-center" style={{ background: "#1E2233" }}>
-              <Camera className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground mb-1">Coming Soon</p>
-              <p className="text-xs text-muted-foreground/60">
-                Screenshot OCR import will automatically detect and add heroes from your in-game roster screenshots.
-              </p>
-            </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search troops..."
+              value={importSearch}
+              onChange={(e) => setImportSearch(e.target.value)}
+              className="pl-8 h-8 text-xs"
+              style={{ background: "#1E2233" }}
+            />
+          </div>
+
+          {/* Scrollable troop list */}
+          <div className="overflow-y-auto flex-1 space-y-3 pr-1" style={{ maxHeight: "55vh" }}>
+            {rarityOrder.map(rarity => {
+              const group = importGrouped[rarity];
+              if (!group || group.length === 0) return null;
+              return (
+                <div key={rarity}>
+                  <div className="flex items-center gap-2 mb-1.5 sticky top-0 py-1 z-10" style={{ background: "#161924" }}>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ color: RARITY_COLORS[rarity], borderColor: RARITY_COLORS[rarity] + "40" }}>
+                      {rarity}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground">{group.length} troops</span>
+                  </div>
+                  <div className="space-y-1">
+                    {group.map(hero => {
+                      const sel = importSelections[hero.id] || { checked: false, quantity: 1, level: 1 };
+                      const stats = typeof hero.stats === "string" ? JSON.parse(hero.stats) : hero.stats;
+                      const elixir = stats?.elixir ?? "?";
+                      return (
+                        <div key={hero.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs" style={{ background: sel.checked ? "#1E2233" : "transparent" }}>
+                          {/* Checkbox */}
+                          <Checkbox
+                            checked={sel.checked}
+                            onCheckedChange={(checked) => {
+                              setImportSelections(prev => ({
+                                ...prev,
+                                [hero.id]: { ...sel, checked: !!checked },
+                              }));
+                            }}
+                            className="h-4 w-4"
+                          />
+
+                          {/* Rarity badge + Name + Class + Elixir */}
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: RARITY_COLORS[hero.rarity] }} />
+                            <span className="truncate font-medium">{hero.name}</span>
+                            <span className="text-muted-foreground/60 flex-shrink-0">{hero.class}</span>
+                            <span className="text-muted-foreground/40 flex-shrink-0 flex items-center gap-0.5">
+                              <Zap className="w-2.5 h-2.5" />{elixir}
+                            </span>
+                          </div>
+
+                          {/* Qty stepper */}
+                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                            <button
+                              className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              style={{ background: "#0F1118" }}
+                              disabled={!sel.checked || sel.quantity <= 1}
+                              onClick={() => setImportSelections(prev => ({
+                                ...prev,
+                                [hero.id]: { ...sel, quantity: Math.max(1, sel.quantity - 1) },
+                              }))}
+                            >
+                              <Minus className="w-2.5 h-2.5" />
+                            </button>
+                            <span className="w-4 text-center text-[10px]">{sel.quantity}</span>
+                            <button
+                              className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              style={{ background: "#0F1118" }}
+                              disabled={!sel.checked || sel.quantity >= 10}
+                              onClick={() => setImportSelections(prev => ({
+                                ...prev,
+                                [hero.id]: { ...sel, quantity: Math.min(10, sel.quantity + 1) },
+                              }))}
+                            >
+                              <Plus className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          {/* Level dropdown */}
+                          <Select
+                            value={String(sel.level)}
+                            onValueChange={(v) => setImportSelections(prev => ({
+                              ...prev,
+                              [hero.id]: { ...sel, level: Number(v) },
+                            }))}
+                            disabled={!sel.checked}
+                          >
+                            <SelectTrigger className="h-6 w-16 text-[10px] px-1.5 flex-shrink-0" style={{ background: "#0F1118" }}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {[1,2,3,4,5,6,7,8,9].map(lv => (
+                                <SelectItem key={lv} value={String(lv)} className="text-xs">Lv.{lv}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {importHeroes.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-6">No troops found</p>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-2 border-t border-border/30">
+            <span className="text-[10px] text-muted-foreground">{checkedCount} selected</span>
+            <Button
+              size="sm"
+              className="text-xs gap-1.5"
+              disabled={checkedCount === 0 || quickImportMutation.isPending}
+              onClick={handleQuickImport}
+            >
+              <Plus className="w-3 h-3" />
+              {quickImportMutation.isPending ? "Adding..." : `Add ${checkedCount} troop${checkedCount !== 1 ? "s" : ""} to roster`}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
