@@ -16,6 +16,7 @@ import SettingsPage from "@/pages/settings";
 import AdminPage from "@/pages/admin";
 import AuthPage from "@/pages/auth";
 import SharedLineup from "@/pages/shared";
+import UpgradeSuccess from "@/pages/upgrade-success";
 
 function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -62,6 +63,7 @@ function AppRouter() {
       <Route path="/optimizer" component={Optimizer} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/admin" component={AdminPage} />
+      <Route path="/upgrade-success" component={UpgradeSuccess} />
       <Route path="/shared/:code" component={SharedLineup} />
       <Route path="/auth"><Redirect to="/" /></Route>
       <Route component={NotFound} />

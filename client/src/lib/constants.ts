@@ -38,6 +38,8 @@ export const ATTRIBUTES = ["Physical", "Fire", "Water", "Wood", "Earth", "Frost"
 export const GAME_MODES = ["Arena", "Hunting", "Adventure", "Infinite War", "Clan War", "Clan Hunt"] as const;
 export const FORMATIONS = ["Dash", "Backstab", "Outflank", "Split"] as const;
 
+export const STRIPE_PUBLISHABLE_KEY = "pk_live_51TLmUOIuYTYbkD1bnopAD2mQgpCCXgpEfXmExTyauqtRSQ8TW3o5jzh0aBZVQuKCXNoP7emQ4ovMnA5rlYgfgkjb00tYtLsjXA";
+
 export const FORMATION_INFO: Record<string, { description: string; strongAgainst: string; weakAgainst: string; tips: string }> = {
   Dash: {
     description: "Standard baseline formation. Your units directly engage enemies. Strong with aura abilities like Oracle.",

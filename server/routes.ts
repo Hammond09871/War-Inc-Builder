@@ -4,6 +4,11 @@ import { storage } from "./storage";
 import { insertRosterSchema, insertLineupSchema, insertHeroSchema, type User } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import Stripe from "stripe";
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 // Hero data to seed
 const heroSeedData: any[] = [
@@ -446,13 +451,91 @@ export async function registerRoutes(
 
   // --- Premium/Upgrade ---
 
+  // Stripe Checkout — create a checkout session for PRO upgrade
+  app.post("/api/create-checkout-session", async (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+    if (!stripe) {
+      return res.status(500).json({ message: "Payment system not configured" });
+    }
+
+    if (user.isPremium) {
+      return res.json({ message: "Already premium" });
+    }
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: "WIR Lineup Builder — PRO Upgrade",
+              description: "Unlimited lineup generations, unlimited saves, ad-free experience",
+            },
+            unit_amount: 599,
+          },
+          quantity: 1,
+        }],
+        mode: "payment",
+        success_url: `${req.headers.origin || "https://war-inc-builder-production.up.railway.app"}/#/upgrade-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${req.headers.origin || "https://war-inc-builder-production.up.railway.app"}/#/`,
+        metadata: {
+          userId: String(user.id),
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe verify — confirm payment and upgrade user
+  app.post("/api/verify-payment", async (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ message: "Not authenticated" });
+
+    if (!stripe) {
+      return res.status(500).json({ message: "Payment system not configured" });
+    }
+
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ message: "Session ID required" });
+    }
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status === "paid" && session.metadata?.userId === String(user.id)) {
+        storage.setPremium(user.id, 1);
+        storage.resetGenerations(user.id);
+        const updated = storage.getUserById(user.id);
+        res.json({ success: true, user: { id: updated!.id, username: updated!.username, isAdmin: updated!.isAdmin, isPremium: updated!.isPremium, generationsUsed: updated!.generationsUsed, bonusGenerations: updated!.bonusGenerations, bonusSaves: updated!.bonusSaves } });
+      } else {
+        res.status(400).json({ message: "Payment not verified" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin-only direct upgrade (for granting test accounts)
   app.post("/api/upgrade", (req, res) => {
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
-    // In production, this would verify payment. For now, just toggle premium.
-    storage.setPremium(user.id, 1);
-    storage.resetGenerations(user.id);
-    const updated = storage.getUserById(user.id);
+
+    if (!user.isAdmin) {
+      return res.status(403).json({ message: "Use the payment system to upgrade" });
+    }
+
+    const { targetUserId } = req.body;
+    const upgradeId = targetUserId || user.id;
+    storage.setPremium(upgradeId, 1);
+    storage.resetGenerations(upgradeId);
+    const updated = storage.getUserById(upgradeId);
     res.json({ user: { id: updated!.id, username: updated!.username, isAdmin: updated!.isAdmin, isPremium: updated!.isPremium, generationsUsed: updated!.generationsUsed, bonusGenerations: updated!.bonusGenerations, bonusSaves: updated!.bonusSaves } });
   });
 

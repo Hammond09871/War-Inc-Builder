@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Crown, Zap, Save, Brain, Film } from "lucide-react";
+import { Crown, Zap, Save, Brain, Film, CreditCard } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useRef } from "react";
@@ -65,14 +65,16 @@ export function PaywallDialog({ open, onOpenChange, trigger }: PaywallDialogProp
   const handleUpgrade = async () => {
     setUpgrading(true);
     try {
-      const res = await apiRequest("POST", "/api/upgrade");
-      const result = await res.json();
-      queryClient.setQueryData(["/api/auth/me"], result);
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Upgraded to PRO!", description: "Enjoy unlimited access." });
-      onOpenChange(false);
+      const res = await apiRequest("POST", "/api/create-checkout-session");
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, "_blank");
+      } else if (data.message === "Already premium") {
+        toast({ title: "You're already PRO!" });
+        onOpenChange(false);
+      }
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      toast({ title: "Error", description: "Could not start payment. Try again.", variant: "destructive" });
     } finally {
       setUpgrading(false);
     }
@@ -180,8 +182,8 @@ export function PaywallDialog({ open, onOpenChange, trigger }: PaywallDialogProp
               style={{ background: "#D4A843", color: "#0F1118" }}
               data-testid="button-upgrade-pro"
             >
-              <Crown className="w-3.5 h-3.5" />
-              {upgrading ? "Processing..." : "$5.99 — Upgrade"}
+              <CreditCard className="w-3.5 h-3.5" />
+              {upgrading ? "Redirecting to secure payment..." : "Upgrade Now — $5.99"}
             </Button>
           </div>
         </div>
